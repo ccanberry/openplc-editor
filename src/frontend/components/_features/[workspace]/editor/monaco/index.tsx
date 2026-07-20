@@ -30,6 +30,7 @@ import {
 } from './completion'
 import { parsePouToStText } from './drag-and-drop/st'
 import { cleanupPythonLSP, initPythonLSP, setupPythonLSPForEditor, updatePythonLspContext } from './python-lsp'
+import { ensureDebugHoverProvider } from './debug-hover-provider'
 import { applyThemeNow, ensureOpenplcThemes } from './theme-utils'
 
 type monacoEditorProps = {
@@ -816,6 +817,10 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   function handleEditorBeforeMount(monacoInstance: typeof monaco) {
     monacoRef.current = monacoInstance
     ensureOpenplcThemes(monacoInstance)
+    // Register the debug hover provider once (module singleton). Inert unless a
+    // debug session is active; surfaces live values for the token under the
+    // cursor, complementing the inline `= value` decorations.
+    ensureDebugHoverProvider(monacoInstance)
   }
 
   useEffect(() => {
