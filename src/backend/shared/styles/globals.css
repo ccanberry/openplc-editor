@@ -769,6 +769,43 @@
   background-color: #388e3c;
 }
 
+/* Online-debugger breakpoint gutter + halted current-line (ST/IL) */
+.oplc-monaco-wrapper .debug-breakpoint-glyph {
+  background-color: #e51400;
+  border-radius: 50%;
+  width: 12px !important;
+  height: 12px !important;
+  margin: 3px 0 0 5px;
+  cursor: pointer;
+}
+.oplc-monaco-wrapper .debug-breakpoint-glyph-hint {
+  /* breakpointable line, not yet armed — faint dot, brightens on hover */
+  background-color: rgba(229, 20, 0, 0.28);
+  border-radius: 50%;
+  width: 12px !important;
+  height: 12px !important;
+  margin: 3px 0 0 5px;
+  cursor: pointer;
+}
+.oplc-monaco-wrapper .debug-breakpoint-glyph-hint:hover {
+  background-color: rgba(229, 20, 0, 0.6);
+}
+.oplc-monaco-wrapper .debug-current-line-glyph {
+  /* right-pointing arrow marking the halted statement */
+  width: 0 !important;
+  height: 0 !important;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 9px solid #ffcc00;
+  margin: 4px 0 0 6px;
+}
+.oplc-monaco-wrapper .debug-current-line {
+  background-color: rgba(255, 204, 0, 0.16);
+}
+.dark .oplc-monaco-wrapper .debug-current-line {
+  background-color: rgba(255, 204, 0, 0.12);
+}
+
 /* Ensure Radix popper/select content sits well above Monaco */
 [data-radix-popper-content-wrapper],
 [data-radix-select-content],

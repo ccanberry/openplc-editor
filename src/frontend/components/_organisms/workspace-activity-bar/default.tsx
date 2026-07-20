@@ -19,6 +19,7 @@ import {
 import { StopIcon } from '../../../assets/icons/interface/Stop'
 import { useDebugPolling } from '../../../hooks/useDebugPolling'
 import { useDebugSession } from '../../../hooks/useDebugSession'
+import { useRunControlSync } from '../../../hooks/useRunControl'
 import { executeSaveProject } from '../../../services/save-actions'
 import { useOpenPLCStore } from '../../../store'
 import type { RuntimeConnection } from '../../../store/slices/device/types'
@@ -95,6 +96,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const capabilities = useCapabilities()
   const debugSession = useDebugSession()
   useDebugPolling({ debugTreesRef: debugSession.debugTreesRef })
+  // Online-debugger run control: keeps the runtime's breakpoint set in sync
+  // with placed breakpoints and polls the halt state (no-op on non-debug builds).
+  useRunControlSync()
 
   const [isCompiling, setIsCompiling] = useState(false)
   const [isDebuggerProcessing, setIsDebuggerProcessing] = useState(false)

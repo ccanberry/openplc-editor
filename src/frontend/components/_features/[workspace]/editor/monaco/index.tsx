@@ -12,6 +12,12 @@ import { executeSaveActiveFile, executeSaveProject } from '../../../../../servic
 import { pouUri } from '../../../../../services/st-lsp'
 import { openPLCStoreBase, useOpenPLCStore } from '../../../../../store'
 import { applyAcceptedHunks, computeHunks } from '../../../../../utils/ai-diff-review'
+import {
+  breakpointableLines,
+  breakpointKey,
+  checkpointLocation,
+  parseBreakpointKey,
+} from '../../../../../utils/debug-breakpoints'
 import { getExtensionFromLanguage, getFolderFromPouType } from '../../../../../utils/PLC/pou-file-extensions'
 import { parseHybridPouFromString, parseTextualPouFromString } from '../../../../../utils/PLC/pou-text-parser'
 import { Modal, ModalContent, ModalTitle } from '../../../../_molecules/modal'
@@ -129,6 +135,8 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   const editorRef = useRef<null | monaco.editor.IStandaloneCodeEditor>(null)
   const monacoRef = useRef<null | typeof monaco>(null)
   const focusDisposables = useRef<{ onFocus?: monaco.IDisposable; onBlur?: monaco.IDisposable }>({})
+  // Disposable for the breakpoint-gutter mouse-down listener (run-control).
+  const breakpointMouseDisposable = useRef<monaco.IDisposable | null>(null)
   const coexistenceRef = useRef<AiLspCoexistenceController | null>(null)
   const [editorMounted, setEditorMounted] = useState(false)
   const [modelVersion, setModelVersion] = useState(0)
@@ -148,6 +156,10 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
       isDebuggerVisible,
       fbSelectedInstance,
       fbDebugInstances,
+      debugBreakpoints,
+      debugCheckpointMap,
+      debugHalted,
+      debugStoppedCheckpointId,
     },
     project: {
       meta: { path: projectPath },
@@ -170,6 +182,11 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   } = useOpenPLCStore()
   const debugBoolValues = useDebugBoolValuesMap()
   const debugNonBoolValues = useDebugNonBoolValuesMap()
+
+  // Breakpoint gutter: only for textual POUs during a debug session, where the
+  // checkpoint map makes breakpoints meaningful (graphical LD/FBD/SFC
+  // breakpoints are a later phase).
+  const showBreakpointGutter = isDebuggerVisible && (language === 'st' || language === 'il')
 
   // Create a unique Monaco path for editor (prevents model caching across projects)
   const uniqueMonacoPath = capabilities.hasLocalFilesystem && projectPath ? `${projectPath}${path}` : path
@@ -600,6 +617,81 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     return () => collection.clear()
   }, [debugVarPositions, debugBoolValues, debugNonBoolValues])
 
+  // Breakpoint gutter glyphs + halted current-line highlight (run control).
+  // Faint hints mark breakpointable lines; solid dots mark armed breakpoints;
+  // an arrow + line highlight tracks the statement the target is halted on.
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor || !showBreakpointGutter) return
+
+    const armedLines = new Set<number>()
+    for (const key of debugBreakpoints) {
+      const parsed = parseBreakpointKey(key)
+      if (parsed && parsed.pou === name) armedLines.add(parsed.line)
+    }
+
+    const decorations: monaco.editor.IModelDeltaDecoration[] = []
+
+    // Hint every breakpointable line that isn't already armed.
+    for (const line of breakpointableLines(debugCheckpointMap, name)) {
+      if (armedLines.has(line)) continue
+      decorations.push({
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          glyphMarginClassName: 'debug-breakpoint-glyph-hint',
+          glyphMarginHoverMessage: { value: 'Click to set a breakpoint' },
+        },
+      })
+    }
+
+    // Solid dot for each armed breakpoint in this POU.
+    for (const line of armedLines) {
+      decorations.push({
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          glyphMarginClassName: 'debug-breakpoint-glyph',
+          glyphMarginHoverMessage: { value: 'Breakpoint — click to remove' },
+        },
+      })
+    }
+
+    // Halted statement: arrow glyph + whole-line highlight, scrolled into view.
+    if (debugHalted && debugStoppedCheckpointId !== null) {
+      const loc = checkpointLocation(debugCheckpointMap, debugStoppedCheckpointId)
+      if (loc && loc.pou === name) {
+        decorations.push({
+          range: new monaco.Range(loc.line, 1, loc.line, 1),
+          options: {
+            isWholeLine: true,
+            className: 'debug-current-line',
+            glyphMarginClassName: 'debug-current-line-glyph',
+          },
+        })
+        editor.revealLineInCenterIfOutsideViewport(loc.line)
+      }
+    }
+
+    const collection = editor.createDecorationsCollection(decorations)
+    return () => collection.clear()
+  }, [
+    showBreakpointGutter,
+    debugBreakpoints,
+    debugCheckpointMap,
+    debugHalted,
+    debugStoppedCheckpointId,
+    name,
+    editorMounted,
+    modelVersion,
+  ])
+
+  // Dispose the breakpoint-gutter mouse listener on unmount.
+  useEffect(() => {
+    return () => {
+      breakpointMouseDisposable.current?.dispose()
+      breakpointMouseDisposable.current = null
+    }
+  }, [])
+
   // -----------------------------------------------------------------------
   // Completion callbacks
   // -----------------------------------------------------------------------
@@ -868,6 +960,22 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
 
     focusDisposables.current.onBlur = editorInstance.onDidBlurEditorText(() => {
       openPLCStoreBase.getState().editorActions.setMonacoFocused(false)
+    })
+
+    // Breakpoint gutter: toggle a breakpoint when the glyph margin of a
+    // breakpointable line (one carrying a checkpoint) is clicked.  State is
+    // read live from the store so the closure never goes stale across POU
+    // switches, and the run-control sync hook re-arms the runtime.
+    breakpointMouseDisposable.current?.dispose()
+    breakpointMouseDisposable.current = editorInstance.onMouseDown((e) => {
+      if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return
+      const line = e.target.position?.lineNumber
+      if (line === undefined) return
+      const { workspace, workspaceActions } = openPLCStoreBase.getState()
+      if (!workspace.isDebuggerVisible) return
+      // Only lines that actually carry a checkpoint can hold a breakpoint.
+      if (!breakpointableLines(workspace.debugCheckpointMap, name).has(line)) return
+      workspaceActions.toggleBreakpoint(breakpointKey(name, line))
     })
 
     // Apply theme
@@ -1250,6 +1358,7 @@ void loop()
     minimap: { enabled: false },
     dropIntoEditor: { enabled: true },
     readOnly: isDebuggerVisible,
+    glyphMargin: showBreakpointGutter,
     // Lock indentation to 4 spaces across every language Monaco
     // hosts (ST / IL / Python / C++).  Without this Monaco's
     // `detectIndentation` heuristic kicks in on the existing model
