@@ -21,6 +21,7 @@ import {
 import { getExtensionFromLanguage, getFolderFromPouType } from '../../../../../utils/PLC/pou-file-extensions'
 import { parseHybridPouFromString, parseTextualPouFromString } from '../../../../../utils/PLC/pou-text-parser'
 import { Modal, ModalContent, ModalTitle } from '../../../../_molecules/modal'
+import { RunControlToolbar } from '../../../../_molecules/run-control-toolbar'
 import { toast } from '../../../[app]/toast/use-toast'
 import { renderDiffReview } from './ai-diff-review'
 import { type AiLspCoexistenceController, installAiLspCoexistenceKeybindings } from './ai-lsp-coexistence'
@@ -1576,6 +1577,7 @@ void loop()
           saveViewState={false}
           keepCurrentModel={true}
         />
+        {isActive && showBreakpointGutter && <RunControlToolbar />}
       </div>
       <Modal open={isOpen} onOpenChange={setIsOpen}>
         <ModalContent className='flex h-56 w-96 select-none flex-col justify-between gap-2 rounded-lg p-8'>
