@@ -61,6 +61,13 @@ function writeU16BE(buf: Uint8Array, offset: number, value: number): void {
   buf[offset + 1] = value & 0xff
 }
 
+function writeU32BE(buf: Uint8Array, offset: number, value: number): void {
+  buf[offset] = (value >>> 24) & 0xff
+  buf[offset + 1] = (value >>> 16) & 0xff
+  buf[offset + 2] = (value >>> 8) & 0xff
+  buf[offset + 3] = value & 0xff
+}
+
 function readU8(buf: Uint8Array, offset: number): number {
   return buf[offset]
 }
@@ -133,6 +140,73 @@ export function buildSetVariableRequest(index: number, force: boolean, valueBuff
     writeU8(buf, 7, 0)
   }
   return buf
+}
+
+// ---------------------------------------------------------------------------
+// Online-debugger run control (FC 0x46-0x4B).
+//
+// Wire layouts (must match openplc-runtime debug_handler.c exactly):
+//   set-breakpoints request: [FC=0x46][count:U16BE][id0:U32BE][id1:U32BE]...
+//   clear/continue/pause/step request: [FC]  (bare 1-byte frame)
+//   stopinfo request:  [FC=0x4B]
+//   control response (respond_short): [FC][status]
+//   stopinfo response: [FC=0x4B][status][stopped:U8][checkpointId:U32BE]
+//
+// `ids` are project-global STruC++ checkpoint ids from `checkpoint-map.json`.
+// ---------------------------------------------------------------------------
+
+export function buildSetBreakpointsRequest(ids: number[]): Uint8Array {
+  const buf = alloc(3 + 4 * ids.length)
+  writeU8(buf, 0, ModbusFunctionCode.DEBUG_SET_BREAKPOINTS)
+  writeU16BE(buf, 1, ids.length)
+  for (let i = 0; i < ids.length; i++) {
+    writeU32BE(buf, 3 + i * 4, ids[i] >>> 0)
+  }
+  return buf
+}
+
+/** Build a bare 1-byte run-control frame (clear / continue / pause / step / stopinfo). */
+export function buildRunControlRequest(fc: ModbusFunctionCode): Uint8Array {
+  const buf = alloc(1)
+  writeU8(buf, 0, fc)
+  return buf
+}
+
+export interface StopInfoResult {
+  success: boolean
+  stopped: boolean
+  checkpointId: number
+  error?: string
+}
+
+export function parseStopInfoResponse(data: Uint8Array): StopInfoResult {
+  if (data.length < 2) {
+    return { success: false, stopped: false, checkpointId: 0, error: `Invalid response: too short (${data.length} bytes)` }
+  }
+  const fc = readU8(data, 0)
+  const status = readU8(data, 1)
+  if (fc !== ModbusFunctionCode.DEBUG_STOPINFO) {
+    return { success: false, stopped: false, checkpointId: 0, error: 'Function code mismatch' }
+  }
+  if (status !== ModbusDebugResponse.SUCCESS) {
+    return { success: false, stopped: false, checkpointId: 0, error: statusError(status) }
+  }
+  if (data.length < 7) {
+    return { success: false, stopped: false, checkpointId: 0, error: `Incomplete stopinfo (${data.length} bytes, expected 7)` }
+  }
+  return { success: true, stopped: readU8(data, 2) !== 0, checkpointId: readU32BE(data, 3) }
+}
+
+/** Parse a control-op ack (respond_short: [FC][status]). */
+export function parseRunControlResponse(data: Uint8Array): DebugSetResult {
+  if (data.length < 2) {
+    return { success: false, error: `Invalid response: too short (${data.length} bytes)` }
+  }
+  const status = readU8(data, 1)
+  if (status !== ModbusDebugResponse.SUCCESS) {
+    return { success: false, error: statusError(status) }
+  }
+  return { success: true }
 }
 
 // ---------------------------------------------------------------------------
