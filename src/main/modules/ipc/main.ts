@@ -1,0 +1,2344 @@
+import { ESIService } from '@root/backend/editor/ethercat'
+import { createDesktopCatalogTransport } from '@root/backend/editor/library-manager/desktop-catalog-transport'
+import { getRuntimeHttpsOptions } from '@root/backend/editor/utils/runtime-https-config'
+import { parseESIDeviceFull } from '@root/backend/shared/ethercat/esi-parser-main'
+import { listPublicLibraries } from '@root/backend/shared/library/public-catalog-client'
+import { PLCProjectData } from '@root/backend/shared/types/PLC/open-plc'
+import { getErrorMessage } from '@root/frontend/utils/get-error-message'
+import { RuntimeLogEntry } from '@root/middleware/shared/ports'
+import type {
+  EtherCATRuntimeStatusResponse,
+  EtherCATScanRequest,
+  EtherCATScanResponse,
+  EtherCATServiceStatusResponse,
+  EtherCATTestRequest,
+  EtherCATTestResponse,
+  EtherCATValidateRequest,
+  EtherCATValidateResponse,
+  NetworkInterface,
+} from '@root/middleware/shared/ports/ethercat-types'
+import type {
+  ListPublicLibrariesArgs,
+  ListPublicLibrariesResponse,
+} from '@root/middleware/shared/ports/public-catalog-types'
+import { createRuntimeTokenManager } from '@root/middleware/shared/runtime-auth/runtime-token-manager'
+import { CreatePouFileProps } from '@root/types/IPC/pou-service'
+import { CreateProjectFileProps } from '@root/types/IPC/project-service'
+import { randomUUID } from 'crypto'
+import dgram from 'dgram'
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
+import { app, dialog, nativeTheme, shell } from 'electron'
+import { readFile, realpathSync, stat, statSync, unwatchFile, watchFile } from 'fs'
+import { unlink, writeFile } from 'fs/promises'
+import type { IncomingHttpHeaders, IncomingMessage } from 'http'
+import https from 'https'
+import { networkInterfaces } from 'os'
+import { join, resolve, sep } from 'path'
+import { platform } from 'process'
+
+import { MainIpcModule, MainIpcModuleConstructor } from '../../../backend/editor/contracts/types/modules/ipc/main'
+import { LibraryManagerModule } from '../../../backend/editor/library-manager'
+import { ModbusTcpClient } from '../../../backend/editor/modbus/modbus-client'
+import { ModbusRtuClient } from '../../../backend/editor/modbus/modbus-rtu-client'
+import { PackageManagerModule } from '../../../backend/editor/package-manager'
+import { logger } from '../../../backend/editor/services'
+import { getOpenProjectPath, getProjectPath } from '../../../backend/editor/utils'
+import { WebSocketDebugTransport } from '../../../backend/shared/debug/websocket-debug-transport'
+import { SimulatorModule } from '../../../backend/shared/simulator/simulator-module'
+import { VirtualSerialPort } from '../../../backend/shared/simulator/virtual-serial-port'
+
+class MainProcessBridge implements MainIpcModule {
+  ipcMain
+  mainWindow
+  projectService
+  store
+  menuBuilder
+  pouService
+  compilerModule
+  hardwareModule
+  private registeredHandleChannels: string[] = []
+  private debuggerModbusClient: ModbusTcpClient | ModbusRtuClient | null = null
+  private debuggerWebSocketClient: WebSocketDebugTransport | null = null
+  private debuggerTargetIp: string | null = null
+  private debuggerReconnecting: boolean = false
+  private debuggerConnectionType: 'tcp' | 'rtu' | 'websocket' | 'simulator' | null = null
+  private debuggerRtuPort: string | null = null
+  private debuggerRtuBaudRate: number | null = null
+  private debuggerRtuSlaveId: number | null = null
+  private debuggerJwtToken: string | null = null
+  // Address of the runtime this session is authenticated against. Captured at
+  // login so the token authority can re-authenticate against the same device.
+  private runtimeIp: string | null = null
+  // Single token authority for the editor: owns the access token + credentials
+  // and the refresh/retry-on-401 logic, shared byte-for-byte with the web app.
+  // Every runtime HTTP call (GET, POST, and the project upload) goes through it,
+  // so they all self-heal identically when the 15-min JWT expires.
+  private tokens = createRuntimeTokenManager({
+    login: async (credentials) => {
+      if (!this.runtimeIp) return { success: false, error: 'No runtime address configured' }
+      const result = await this.performAuthentication(this.runtimeIp, credentials.username, credentials.password)
+      return { success: result.success, token: result.accessToken, error: result.error }
+    },
+  })
+  // Current project root path used to validate file-watcher IPC calls
+  private currentProjectPath: string | null = null
+  // File watchers for auto-reload functionality (using watchFile for better macOS compatibility)
+  private fileWatchers: Map<string, { lastMtime: number }> = new Map()
+  // avr8js ATmega2560 emulator instance for the built-in simulator
+  private simulatorModule = new SimulatorModule()
+  // VPP package manager for board package operations
+  private packageManagerModule = new PackageManagerModule()
+  // System-wide IEC 61131-3 library pool (bundled + user-installed)
+  private libraryManagerModule = new LibraryManagerModule()
+  // Shared transport for public-catalog HTTP — re-used by the
+  // `catalog:list` handler so the library-manager-module's batch
+  // install path and the modal's browse path hit the same env-
+  // configured base URL.
+  private catalogTransport = createDesktopCatalogTransport()
+  // ESI repository service for EtherCAT device descriptions
+  private esiService = new ESIService()
+
+  constructor({
+    ipcMain,
+    mainWindow,
+    projectService,
+    store,
+    menuBuilder,
+    pouService,
+    compilerModule,
+    hardwareModule,
+  }: MainIpcModuleConstructor) {
+    this.ipcMain = ipcMain
+    this.mainWindow = mainWindow
+    this.projectService = projectService
+    this.store = store
+    this.menuBuilder = menuBuilder
+    this.pouService = pouService
+    this.compilerModule = compilerModule
+    this.hardwareModule = hardwareModule
+
+    // When the token authority transparently refreshes an expired token, push
+    // the fresh token to the renderer so its store connection flag tracks it.
+    this.tokens.onTokenChanged((newToken) => {
+      this.mainWindow?.webContents?.send('runtime:token-refreshed', newToken)
+    })
+  }
+
+  // ===================== RUNTIME API HANDLERS =====================
+  private readonly RUNTIME_API_PORT = 8443
+  private readonly RUNTIME_CONNECTION_TIMEOUT_MS = 5000 // 5 seconds (important-comment)
+
+  /**
+   * Low-level HTTP helper that handles data accumulation, timeout, and error handling.
+   * Returns the raw status code, response body, and headers for the caller to interpret.
+   */
+  private httpRequest(options: {
+    method: 'GET' | 'POST'
+    url: string
+    body?: string
+    headers?: Record<string, string>
+  }): Promise<{ statusCode: number; data: string; headers: IncomingHttpHeaders }> {
+    return new Promise((resolve, reject) => {
+      const parsedUrl = new URL(options.url)
+      const reqOptions = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: options.method,
+        headers: {
+          ...options.headers,
+          ...(options.body
+            ? {
+                'Content-Type': 'application/json',
+                'Content-Length': String(Buffer.byteLength(options.body)),
+              }
+            : {}),
+        },
+        ...getRuntimeHttpsOptions(),
+      }
+
+      const req = https.request(reqOptions as https.RequestOptions, (res: IncomingMessage) => {
+        let data = ''
+        res.on('data', (chunk: Buffer) => {
+          data += chunk.toString()
+        })
+        res.on('end', () => {
+          resolve({ statusCode: res.statusCode ?? 0, data, headers: res.headers })
+        })
+      })
+      req.setTimeout(this.RUNTIME_CONNECTION_TIMEOUT_MS, () => {
+        req.destroy()
+        reject(new Error('Connection timeout'))
+      })
+      req.on('error', (error: Error) => {
+        reject(error)
+      })
+      if (options.body) {
+        req.write(options.body)
+      }
+      req.end()
+    })
+  }
+
+  private runtimeUrl(ipAddress: string, endpoint: string): string {
+    return `https://${ipAddress}:${this.RUNTIME_API_PORT}${endpoint}`
+  }
+
+  handleRuntimeGetUsersInfo = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    // Retried because a transport-level failure here is worse than elsewhere:
+    // treating it as "no users" routes the UI to the Create First User modal,
+    // whose create-user call then 403s against a runtime that has accounts.
+    // The runtime's dev TLS stack occasionally closes without close_notify,
+    // which surfaces as ECONNRESET even though the endpoint is healthy.
+    let lastError = ''
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await this.httpRequest({
+          method: 'GET',
+          url: this.runtimeUrl(ipAddress, '/api/get-users-info'),
+        })
+        const runtimeVersion = res.headers['x-openplc-runtime-version'] as string | undefined
+
+        if (res.statusCode === 404) {
+          return { hasUsers: false, runtimeVersion }
+        } else if (res.statusCode === 200) {
+          return { hasUsers: true, runtimeVersion }
+        } else {
+          return { hasUsers: false, error: res.data || `Unexpected status: ${res.statusCode}`, runtimeVersion }
+        }
+      } catch (error) {
+        lastError = getErrorMessage(error)
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 300))
+        }
+      }
+    }
+    return { hasUsers: false, error: lastError }
+  }
+
+  handleRuntimeCreateUser = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    username: string,
+    password: string,
+  ) => {
+    try {
+      const res = await this.httpRequest({
+        method: 'POST',
+        url: this.runtimeUrl(ipAddress, '/api/create-user'),
+        body: JSON.stringify({ username, password, role: 'user' }),
+      })
+      if (res.statusCode === 201) {
+        return { success: true }
+      }
+      return { success: false, error: res.data }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  private async performAuthentication(
+    ipAddress: string,
+    username: string,
+    password: string,
+  ): Promise<{ success: boolean; accessToken?: string; error?: string }> {
+    try {
+      const res = await this.httpRequest({
+        method: 'POST',
+        url: this.runtimeUrl(ipAddress, '/api/login'),
+        body: JSON.stringify({ username, password }),
+      })
+      if (res.statusCode === 200) {
+        try {
+          const response = JSON.parse(res.data) as { access_token: string }
+          return { success: true, accessToken: response.access_token }
+        } catch {
+          return { success: false, error: 'Invalid response format' }
+        }
+      }
+      return { success: false, error: res.data }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeLogin = async (_event: IpcMainInvokeEvent, ipAddress: string, username: string, password: string) => {
+    const result = await this.performAuthentication(ipAddress, username, password)
+    if (result.success && result.accessToken) {
+      // Hand the session to the token authority so it can transparently
+      // re-authenticate against this device when the token expires.
+      this.runtimeIp = ipAddress
+      this.tokens.setSession(result.accessToken, { username, password })
+    }
+    return result
+  }
+
+  private isTokenExpiredError(statusCode: number | undefined, errorMessage: string): boolean {
+    if (statusCode === 401 || statusCode === 403) {
+      return true
+    }
+    const lowerError = errorMessage.toLowerCase()
+    return (
+      lowerError.includes('unauthorized') ||
+      lowerError.includes('token') ||
+      lowerError.includes('expired') ||
+      lowerError.includes('invalid token')
+    )
+  }
+
+  private parseApiResponse<T>(
+    data: string,
+    responseParser?: (data: string) => T,
+  ): { success: true; data?: T } | { success: false; error: string } {
+    if (responseParser) {
+      try {
+        return { success: true, data: responseParser(data) }
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Invalid response format' }
+      }
+    }
+    return { success: true }
+  }
+
+  async makeRuntimeApiRequest<T = void>(
+    ipAddress: string,
+    endpoint: string,
+    responseParser?: (data: string) => T,
+  ): Promise<{ success: true; data?: T } | { success: false; error: string }> {
+    // The token authority owns the live token + refresh.
+    type Raw = { success: true; data?: T } | { success: false; error: string; statusCode?: number }
+    const url = this.runtimeUrl(ipAddress, endpoint)
+    const result = await this.tokens.withAuth<Raw>(
+      async (token) => {
+        try {
+          const res = await this.httpRequest({ method: 'GET', url, headers: { Authorization: `Bearer ${token}` } })
+          if (res.statusCode === 200) return this.parseApiResponse(res.data, responseParser)
+          return { success: false, error: res.data, statusCode: res.statusCode }
+        } catch (error) {
+          return { success: false, error: getErrorMessage(error) }
+        }
+      },
+      (r) => !r.success && this.isTokenExpiredError(r.statusCode, r.error),
+    )
+    return result.success ? result : { success: false, error: result.error }
+  }
+
+  /**
+   * Wrap a service call with standardized error handling.
+   */
+  private async wrapServiceCall<T>(fn: () => Promise<T>): Promise<T | { success: false; error: string }> {
+    try {
+      return await fn()
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  /**
+   * Make an authenticated POST request to the runtime API with automatic token refresh on 401/403.
+   */
+  makeRuntimeApiPostRequest<T>(
+    ipAddress: string,
+    endpoint: string,
+    body: string,
+    responseParser: (data: string) => T,
+    timeoutMs?: number,
+  ): Promise<{ success: true; data: T } | { success: false; error: string }> {
+    // Token + refresh owned by the authority.
+    type PostResult = { success: true; data: T } | { success: false; error: string; statusCode?: number }
+
+    const doRequest = (token: string): Promise<PostResult> => {
+      return new Promise((resolve) => {
+        const req = https.request(
+          {
+            hostname: ipAddress,
+            port: this.RUNTIME_API_PORT,
+            path: endpoint,
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(body),
+              Authorization: `Bearer ${token}`,
+            },
+            ...getRuntimeHttpsOptions(),
+          },
+          (res: IncomingMessage) => {
+            let data = ''
+            res.on('data', (chunk: Buffer) => {
+              data += chunk.toString()
+            })
+            res.on('end', () => {
+              if (res.statusCode === 200) {
+                try {
+                  resolve({ success: true, data: responseParser(data) })
+                } catch (err) {
+                  resolve({ success: false, error: err instanceof Error ? err.message : 'Invalid response format' })
+                }
+              } else {
+                // Propagate HTTP status so the caller can detect 401/403 for
+                // token-refresh without relying on brittle message parsing.
+                resolve({
+                  success: false,
+                  error: data || `Unexpected status: ${res.statusCode}`,
+                  statusCode: res.statusCode,
+                })
+              }
+            })
+          },
+        )
+        req.setTimeout(timeoutMs ?? this.RUNTIME_CONNECTION_TIMEOUT_MS, () => {
+          req.destroy()
+          resolve({ success: false, error: 'Connection timeout' })
+        })
+        req.on('error', (error: Error) => {
+          resolve({ success: false, error: error.message })
+        })
+        req.write(body)
+        req.end()
+      })
+    }
+
+    const stripStatus = (r: PostResult): { success: true; data: T } | { success: false; error: string } =>
+      r.success ? r : { success: false, error: r.error }
+
+    return this.tokens
+      .withAuth<PostResult>(
+        (token) => doRequest(token),
+        (r) => !r.success && this.isTokenExpiredError(r.statusCode, r.error),
+      )
+      .then(stripStatus)
+  }
+
+  /**
+   * Upload a compiled program (multipart) to the runtime, going through the
+   * token authority so an expired token is transparently refreshed and the
+   * upload retried — the same self-healing every other runtime call gets. This
+   * is the path that previously had no refresh, so a long session's upload 401'd
+   * while status polling kept working.
+   */
+  makeRuntimeApiUpload(opts: {
+    ipAddress: string
+    fileBuffer: Buffer
+    filename: string
+    contentType: string
+    cleanBuild: boolean
+    onUploadAccepted?: (responseBody: string) => void
+  }): Promise<{ success: true; data: string } | { success: false; error: string }> {
+    type UploadResult = { success: true; data: string } | { success: false; error: string; statusCode?: number }
+    const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2)
+    const header = Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${opts.filename}"\r\n` +
+        `Content-Type: ${opts.contentType}\r\n\r\n`,
+    )
+    const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
+    const reqBody = Buffer.concat([header, opts.fileBuffer, footer] as unknown as ReadonlyArray<Uint8Array>)
+    const path = opts.cleanBuild ? '/api/upload-file?clean=1' : '/api/upload-file'
+
+    const doRequest = (token: string): Promise<UploadResult> =>
+      new Promise((resolve) => {
+        const req = https.request(
+          {
+            hostname: opts.ipAddress,
+            port: this.RUNTIME_API_PORT,
+            path,
+            method: 'POST',
+            headers: {
+              'Content-Type': `multipart/form-data; boundary=${boundary}`,
+              'Content-Length': reqBody.length,
+              Authorization: `Bearer ${token}`,
+            },
+            ...getRuntimeHttpsOptions(),
+          } as https.RequestOptions,
+          (res: IncomingMessage) => {
+            let data = ''
+            res.on('data', (chunk: Buffer) => {
+              data += chunk.toString()
+            })
+            res.on('end', () => {
+              if (res.statusCode === 200) resolve({ success: true, data })
+              else resolve({ success: false, error: data || `HTTP ${res.statusCode}`, statusCode: res.statusCode })
+            })
+          },
+        )
+        req.setTimeout(300_000, () => {
+          req.destroy()
+          resolve({ success: false, error: 'Upload request timed out after 5 minutes' })
+        })
+        req.on('error', (err: Error) => resolve({ success: false, error: err.message }))
+        req.write(reqBody)
+        req.end()
+      })
+
+    return this.tokens
+      .withAuth<UploadResult>(
+        (token) => doRequest(token),
+        (r) => !r.success && this.isTokenExpiredError(r.statusCode, r.error),
+      )
+      .then((result) => {
+        if (result.success) {
+          opts.onUploadAccepted?.(result.data)
+          return { success: true as const, data: result.data }
+        }
+        return { success: false as const, error: result.error }
+      })
+  }
+
+  handleRuntimeGetStatus = async (_event: IpcMainInvokeEvent, ipAddress: string, includeStats?: boolean) => {
+    try {
+      // Build the endpoint path with optional include_stats query parameter
+      const endpoint = includeStats ? '/api/status?include_stats=true' : '/api/status'
+
+      // strucpp+ runtimes report per-task stats: timing_stats = { tasks: [...] }.
+      // Pre-strucpp runtimes report a flat object: { scan_count, scan_time_min, ... }.
+      // Both shapes can carry an optional plugin_stats map populated by
+      // get_stats hooks on loaded native/VPP plugins. Accept either
+      // task-shape and forward plugin_stats verbatim so the renderer
+      // stays alive when pointed at an older PLC and gets new plugin
+      // metrics without IPC churn.
+      type PluginStatsField = { label: string; value: string | number | boolean; unit?: string }
+      type PluginStatsPayload = { label: string; fields: PluginStatsField[] }
+      type PluginStatsMap = Record<string, PluginStatsPayload>
+      type TaskStats = {
+        name: string
+        scan_count: number
+        scan_time_min: number | null
+        scan_time_max: number | null
+        scan_time_avg: number | null
+        cycle_time_min: number | null
+        cycle_time_max: number | null
+        cycle_time_avg: number | null
+        cycle_latency_min: number | null
+        cycle_latency_max: number | null
+        cycle_latency_avg: number | null
+        overruns: number
+      }
+      type TimingStatsResponse =
+        | { tasks: TaskStats[]; plugin_stats?: PluginStatsMap }
+        | (Omit<TaskStats, 'name'> & { tasks?: undefined; plugin_stats?: PluginStatsMap })
+
+      const result = await this.makeRuntimeApiRequest<{
+        status: string
+        timing_stats?: TimingStatsResponse
+      }>(ipAddress, endpoint, (data: string) => {
+        const response = JSON.parse(data) as {
+          status: string
+          timing_stats?: TimingStatsResponse
+        }
+        return response
+      })
+
+      if (result.success && result.data) {
+        const raw = result.data.timing_stats
+        let timingStats: { tasks: TaskStats[]; plugin_stats?: PluginStatsMap } | undefined
+        if (raw && Array.isArray((raw as { tasks?: TaskStats[] }).tasks)) {
+          timingStats = raw as { tasks: TaskStats[]; plugin_stats?: PluginStatsMap }
+        } else if (raw && typeof (raw as { scan_count?: number }).scan_count === 'number') {
+          // Legacy flat shape — wrap into a single-entry tasks array so
+          // the renderer can iterate uniformly. Forward plugin_stats
+          // verbatim if it was attached at the top level.
+          const flat = raw as Omit<TaskStats, 'name'> & { plugin_stats?: PluginStatsMap }
+          const { plugin_stats, ...flatStats } = flat
+          timingStats = {
+            tasks: [{ name: 'plc', ...flatStats }],
+            ...(plugin_stats ? { plugin_stats } : {}),
+          }
+        }
+        return {
+          success: true,
+          status: result.data.status,
+          timingStats,
+        }
+      } else {
+        return { success: false, error: !result.success ? result.error : 'Unknown error' }
+      }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeStartPlc = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    try {
+      // Parse the body so the renderer can drive a retry-on-BUSY
+      // loop around `COMMAND:BUSY` replies (the runtime answers BUSY
+      // while it's still unloading the previous program after an
+      // upload).  See `backend/shared/library/start-plc-after-build.ts`.
+      const result = await this.makeRuntimeApiRequest<{ status?: string }>(
+        ipAddress,
+        '/api/start-plc',
+        (data: string) => JSON.parse(data) as { status?: string },
+      )
+      if (!result.success) return { success: false, error: result.error }
+      const status = (result.data?.status ?? '').trim()
+      return { success: true, status }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeStopPlc = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    try {
+      return await this.makeRuntimeApiRequest(ipAddress, '/api/stop-plc')
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeGetCompilationStatus = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    try {
+      const result = await this.makeRuntimeApiRequest<{ status: string; logs: string[]; exit_code: number | null }>(
+        ipAddress,
+        '/api/compilation-status',
+        (data: string) => {
+          const response = JSON.parse(data) as { status: string; logs: string[]; exit_code: number | null }
+          return response
+        },
+      )
+      return result
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeGetLogs = async (_event: IpcMainInvokeEvent, ipAddress: string, minId?: number) => {
+    try {
+      const endpoint = minId !== undefined ? `/api/runtime-logs?id=${minId}` : '/api/runtime-logs'
+      const result = await this.makeRuntimeApiRequest<string | RuntimeLogEntry[]>(
+        ipAddress,
+        endpoint,
+        (data: string) => {
+          const response = JSON.parse(data) as { 'runtime-logs': string | RuntimeLogEntry[] }
+          return response['runtime-logs']
+        },
+      )
+      if (result.success) {
+        return { success: true, logs: result.data }
+      } else {
+        return { success: false, error: result.error }
+      }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeClearCredentials = (_event: IpcMainInvokeEvent) => {
+    this.tokens.clear()
+    this.runtimeIp = null
+    return { success: true }
+  }
+
+  // ===================== RUNTIME LAN DISCOVERY =====================
+  private readonly DISCOVERY_PORT = 33333
+  private readonly DISCOVERY_MAGIC = 'OPENPLC_DISCOVER_V1'
+  private readonly DISCOVERY_DEFAULT_DURATION_MS = 3000
+
+  /**
+   * Compute the directed broadcast address for an IPv4 interface
+   * given its address and netmask in dotted-quad form.  Returns
+   * `255.255.255.255` for /32 or otherwise-degenerate masks where a
+   * meaningful broadcast cannot be derived.
+   */
+  private computeBroadcastAddress(address: string, netmask: string): string {
+    const toOctets = (s: string): number[] | null => {
+      const parts = s.split('.').map((p) => Number(p))
+      if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+        return null
+      }
+      return parts
+    }
+    const addr = toOctets(address)
+    const mask = toOctets(netmask)
+    if (!addr || !mask) {
+      return '255.255.255.255'
+    }
+    const broadcast = addr.map((octet, i) => (octet & mask[i]) | (~mask[i] & 0xff))
+    return broadcast.join('.')
+  }
+
+  handleRuntimeDiscoverDevices = (
+    event: IpcMainInvokeEvent,
+    opts?: { durationMs?: number },
+  ): Promise<{
+    success: boolean
+    devices?: Array<{ ipAddress: string; hostname: string; runtimeVersion: string; apiPort: number }>
+    error?: string
+  }> => {
+    const duration = Math.max(500, Math.min(10000, opts?.durationMs ?? this.DISCOVERY_DEFAULT_DURATION_MS))
+    const senderWebContents = event.sender
+
+    return new Promise((resolveOuter) => {
+      const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+      // Dedup by source IP; last reply wins so a runtime updating its
+      // hostname mid-scan still settles on fresh data.
+      const discovered = new Map<
+        string,
+        { ipAddress: string; hostname: string; runtimeVersion: string; apiPort: number }
+      >()
+      let settled = false
+      let timer: NodeJS.Timeout | null = null
+
+      const finish = (err?: Error) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        try {
+          sock.close()
+        } catch {
+          /* socket already closed */
+        }
+        if (err) {
+          resolveOuter({ success: false, error: err.message })
+        } else {
+          resolveOuter({ success: true, devices: Array.from(discovered.values()) })
+        }
+      }
+
+      sock.on('error', (err) => finish(err))
+
+      sock.on('message', (msg, rinfo) => {
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(msg.toString('utf-8'))
+        } catch {
+          return
+        }
+        if (
+          typeof parsed !== 'object' ||
+          parsed === null ||
+          (parsed as { service?: unknown }).service !== 'openplc-runtime'
+        ) {
+          return
+        }
+        const p = parsed as {
+          runtime_version?: unknown
+          hostname?: unknown
+          api_port?: unknown
+        }
+        const device = {
+          ipAddress: rinfo.address,
+          hostname: typeof p.hostname === 'string' ? p.hostname : '',
+          runtimeVersion: typeof p.runtime_version === 'string' ? p.runtime_version : '',
+          apiPort: typeof p.api_port === 'number' ? p.api_port : 8443,
+        }
+        discovered.set(device.ipAddress, device)
+        // Stream the live update to the renderer so the modal can
+        // append rows as devices come in, instead of waiting for the
+        // full timeout.
+        if (!senderWebContents.isDestroyed()) {
+          senderWebContents.send('runtime:device-discovered', device)
+        }
+      })
+
+      sock.bind(0, () => {
+        try {
+          sock.setBroadcast(true)
+        } catch (err) {
+          finish(err as Error)
+          return
+        }
+
+        const magic = new Uint8Array(Buffer.from(this.DISCOVERY_MAGIC, 'utf-8'))
+        const targets = new Set<string>(['255.255.255.255'])
+        const ifaces = networkInterfaces()
+        for (const list of Object.values(ifaces)) {
+          if (!list) continue
+          for (const ifaceInfo of list) {
+            if (ifaceInfo.family !== 'IPv4' || ifaceInfo.internal) continue
+            const broadcast = this.computeBroadcastAddress(ifaceInfo.address, ifaceInfo.netmask)
+            targets.add(broadcast)
+          }
+        }
+
+        for (const target of targets) {
+          sock.send(magic, this.DISCOVERY_PORT, target, (sendErr) => {
+            // Per-target send errors are logged but don't abort the
+            // scan; some interfaces (e.g. VPN tun adapters) reject
+            // broadcast and that's fine.
+            if (sendErr) {
+              logger.debug(`Discovery send to ${target} failed: ${sendErr.message}`)
+            }
+          })
+        }
+
+        timer = setTimeout(() => finish(), duration)
+      })
+    })
+  }
+
+  handleRuntimeGetSerialPorts = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; ports?: Array<{ device: string; description?: string }>; error?: string }> => {
+    try {
+      const result = await this.makeRuntimeApiRequest<{ ports: Array<{ device: string; description?: string }> }>(
+        ipAddress,
+        '/api/serial-ports',
+        (data: string) => {
+          const response = JSON.parse(data) as {
+            ports?: Array<{ device: string; description?: string }>
+            error?: string
+          }
+          if (response.error) {
+            throw new Error(response.error)
+          }
+          return { ports: response.ports || [] }
+        },
+      )
+      if (result.success && result.data) {
+        return { success: true, ports: result.data.ports }
+      } else {
+        return { success: false, error: result.success ? 'No data returned' : result.error }
+      }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  // ===================== IPC HANDLER REGISTRATION =====================
+
+  /**
+   * Register an invoke handler and track the channel for cleanup.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private registerHandle(channel: string, handler: (event: IpcMainInvokeEvent, ...args: any[]) => any) {
+    this.registeredHandleChannels.push(channel)
+    this.ipcMain.handle(channel, handler)
+  }
+
+  /**
+   * Remove all previously registered invoke handlers so they can be
+   * re-registered with fresh references on macOS window reopen.
+   */
+  private cleanupHandlers() {
+    for (const channel of this.registeredHandleChannels) {
+      this.ipcMain.removeHandler(channel)
+    }
+    this.registeredHandleChannels = []
+  }
+
+  setupMainIpcListener() {
+    this.cleanupHandlers()
+
+    // Project-related handlers
+    this.registerHandle('project:create', this.handleProjectCreate)
+    this.registerHandle('project:open', this.handleProjectOpen)
+    this.registerHandle('project:path-picker', this.handleProjectPathPicker)
+    this.registerHandle('project:open-path-picker', this.handleOpenProjectPathPicker)
+    this.registerHandle('project:write-files', this.handleWriteProjectFiles)
+    this.registerHandle('project:save-file', this.handleFileSave)
+    this.registerHandle('project:open-by-path', this.handleProjectOpenByPath)
+    this.registerHandle('project:read-files', this.handleReadProjectFiles)
+
+    // Pou-related handlers
+    this.registerHandle('pou:create', this.handleCreatePouFile)
+    this.registerHandle('pou:delete', this.handleDeletePouFile)
+    this.registerHandle('pou:rename', this.handleRenamePouFile)
+
+    // App and system handlers
+    this.registerHandle('open-external-link', this.handleOpenExternalLink)
+    this.registerHandle('system:get-system-info', this.handleGetSystemInfo)
+    this.registerHandle('libraries:load-all', this.handleLibrariesLoadAll)
+    this.registerHandle('libraries:list-installed', this.handleLibrariesListInstalled)
+    this.registerHandle('libraries:install-from-file', this.handleLibrariesInstallFromFile)
+    this.registerHandle('libraries:uninstall', this.handleLibrariesUninstall)
+    this.registerHandle('catalog:list', this.handleCatalogList)
+    this.registerHandle('catalog:install-many', this.handleCatalogInstallMany)
+    this.registerHandle('app:store-retrieve-recent', this.handleStoreRetrieveRecent)
+    this.registerHandle('project:remove-from-recent', this.handleRemoveProjectFromRecent)
+    this.registerHandle('project:delete', this.handleDeleteProject)
+    this.ipcMain.on('app:quit', this.handleAppQuit)
+    // this.ipcMain.on('app:reply-if-app-is-closing', (_, shouldQuit) => { ... })
+
+    // Theme and store handlers
+    this.ipcMain.on('system:update-theme', this.mainIpcEventHandlers.handleUpdateTheme)
+    this.ipcMain.handle('system:get-theme', this.mainIpcEventHandlers.handleGetTheme)
+    // this.ipcMain.handle('app:store-get', this.mainIpcEventHandlers.getStoreValue)
+
+    // ===================== COMPILER SERVICE =====================
+    // TODO: This handle should be refactored to use MessagePortMain for better performance.
+    this.registerHandle('compiler:export-project-xml', this.handleCompilerExportProjectXml)
+    this.ipcMain.on('compiler:run-compile-program', this.handleRunCompileProgram)
+    this.ipcMain.on('compiler:run-debug-compilation', this.handleRunDebugCompilation)
+    this.ipcMain.on('compiler:run-compile-library', this.handleRunCompileLibrary)
+
+    // +++ !! Deprecated: These handlers are outdated and should be removed. +++
+
+    // this.ipcMain.on('compiler:setup-environment', this.handleCompilerSetupEnvironment)
+    // this.ipcMain.handle('compiler:create-build-directory', this.handleCompilerCreateBuildDirectory)
+    // this.ipcMain.handle('compiler:build-xml-file', this.handleCompilerBuildXmlFile)
+    // this.ipcMain.on('compiler:build-st-program', this.handleCompilerBuildStProgram)
+    // this.ipcMain.on('compiler:generate-c-files', this.handleCompilerGenerateCFiles)
+
+    // ===================== WINDOW CONTROLS =====================
+    this.ipcMain.on('window-controls:close', this.handleWindowControlsClose)
+    this.ipcMain.on('window-controls:closed', this.handleWindowControlsClosed)
+    this.ipcMain.on('window-controls:hide', this.handleWindowControlsHide)
+    this.ipcMain.on('window-controls:minimize', this.handleWindowControlsMinimize)
+    this.ipcMain.on('window-controls:maximize', this.handleWindowControlsMaximize)
+    this.ipcMain.on('window:reload', this.handleWindowReload)
+    this.ipcMain.on('window:rebuild-menu', this.handleWindowRebuildMenu)
+
+    // ===================== HARDWARE =====================
+    this.registerHandle('hardware:get-available-communication-ports', this.handleHardwareGetAvailableCommunicationPorts)
+    this.registerHandle('hardware:get-available-boards', this.handleHardwareGetAvailableBoards)
+    this.registerHandle('hardware:refresh-communication-ports', this.handleHardwareRefreshCommunicationPorts)
+    this.registerHandle('hardware:refresh-available-boards', this.handleHardwareRefreshAvailableBoards)
+
+    // ===================== PACKAGE MANAGER =====================
+    this.registerHandle('packages:import-from-file', this.handlePackagesImportFromFile)
+    this.registerHandle('packages:install-from-url', this.handlePackagesInstallFromUrl)
+    this.registerHandle('packages:list-installed', this.handlePackagesListInstalled)
+    this.registerHandle('packages:uninstall', this.handlePackagesUninstall)
+    this.registerHandle('packages:get-manifest', this.handlePackagesGetManifest)
+    this.registerHandle('packages:verify-signatures', this.handlePackagesVerifySignatures)
+
+    // ===================== UTILITIES =====================
+    this.registerHandle('util:get-preview-image', this.handleUtilGetPreviewImage)
+    this.ipcMain.on('util:log', this.handleUtilLog)
+    this.registerHandle('util:read-debug-file', this.handleReadDebugFile)
+
+    // ===================== DEBUGGER =====================
+    this.registerHandle('debugger:verify-md5', this.handleDebuggerVerifyMd5)
+    this.registerHandle('debugger:read-program-st-md5', this.handleReadProgramStMd5)
+    this.registerHandle('debugger:get-variables-list', this.handleDebuggerGetVariablesList)
+    this.registerHandle('debugger:set-variable', this.handleDebuggerSetVariable)
+    this.registerHandle('debugger:connect', this.handleDebuggerConnect)
+    this.registerHandle('debugger:disconnect', this.handleDebuggerDisconnect)
+
+    // ===================== RUNTIME API =====================
+    this.registerHandle('runtime:get-users-info', this.handleRuntimeGetUsersInfo)
+    this.registerHandle('runtime:create-user', this.handleRuntimeCreateUser)
+    this.registerHandle('runtime:login', this.handleRuntimeLogin)
+    this.registerHandle('runtime:get-status', this.handleRuntimeGetStatus)
+    this.registerHandle('runtime:start-plc', this.handleRuntimeStartPlc)
+    this.registerHandle('runtime:stop-plc', this.handleRuntimeStopPlc)
+    this.registerHandle('runtime:get-compilation-status', this.handleRuntimeGetCompilationStatus)
+    this.registerHandle('runtime:get-logs', this.handleRuntimeGetLogs)
+    this.registerHandle('runtime:clear-credentials', this.handleRuntimeClearCredentials)
+    this.registerHandle('runtime:get-serial-ports', this.handleRuntimeGetSerialPorts)
+    this.registerHandle('runtime:discover-devices', this.handleRuntimeDiscoverDevices)
+
+    // ===================== ETHERCAT DISCOVERY =====================
+    this.registerHandle('ethercat:get-interfaces', this.handleEtherCATGetInterfaces)
+    this.registerHandle('ethercat:get-status', this.handleEtherCATGetStatus)
+    this.registerHandle('ethercat:scan', this.handleEtherCATScan)
+    this.registerHandle('ethercat:test', this.handleEtherCATTest)
+    this.registerHandle('ethercat:validate', this.handleEtherCATValidate)
+    this.registerHandle('ethercat:get-runtime-status', this.handleEtherCATGetRuntimeStatus)
+
+    // ===================== ESI REPOSITORY =====================
+    this.registerHandle('esi:load-repository-index', this.handleESILoadRepositoryIndex)
+    this.registerHandle('esi:save-xml-file', this.handleESISaveXmlFile)
+    this.registerHandle('esi:load-xml-file', this.handleESILoadXmlFile)
+    this.registerHandle('esi:delete-xml-file', this.handleESIDeleteXmlFile)
+    this.registerHandle('esi:parse-and-save-file', this.handleESIParseAndSaveFile)
+    this.registerHandle('esi:clear-repository', this.handleESIClearRepository)
+    this.registerHandle('esi:load-device-full', this.handleESILoadDeviceFull)
+    this.registerHandle('esi:load-repository-light', this.handleESILoadRepositoryLight)
+    this.registerHandle('esi:migrate-repository', this.handleESIMigrateRepository)
+
+    // ===================== SIMULATOR =====================
+    this.registerHandle('simulator:load-firmware', this.handleSimulatorLoadFirmware)
+    this.registerHandle('simulator:stop', this.handleSimulatorStop)
+    this.registerHandle('simulator:is-running', this.handleSimulatorIsRunning)
+
+    // ===================== FILE WATCHER =====================
+    this.registerHandle('file:watch-start', this.handleFileWatchStart)
+    this.registerHandle('file:watch-stop', this.handleFileWatchStop)
+    this.registerHandle('file:watch-stop-all', this.handleFileWatchStopAll)
+    this.registerHandle('file:read-content', this.handleFileReadContent)
+  }
+
+  // ===================== HANDLER METHODS =====================
+  // Project-related handlers
+  handleProjectCreate = async (_event: IpcMainInvokeEvent, data: CreateProjectFileProps) => {
+    this.stopSimulatorAndNotify()
+    const response = await this.projectService.createProject(data)
+    // Mirror `handleProjectOpen`: a freshly-created project is the
+    // active project from this point on, so any sandboxed file IPC
+    // that gates on `validateFilePath` (file:read-content, watcher
+    // start/stop) has a project root to compare against.  Skipping
+    // this left newly-created library projects unable to read their
+    // own `library.json` on first mount of the manifest tab.
+    if (response.success && response.data?.meta.path) {
+      this.currentProjectPath = response.data.meta.path
+    }
+    return response
+  }
+  handleProjectOpen = async () => {
+    this.stopSimulatorAndNotify()
+    const response = await this.projectService.openProject()
+    if (response.success && response.data?.meta.path) {
+      this.currentProjectPath = response.data.meta.path
+    }
+    return response
+  }
+  handleProjectPathPicker = async (_event: IpcMainInvokeEvent) => {
+    const windowManager = this.mainWindow
+    try {
+      if (windowManager) {
+        const res = await getProjectPath(windowManager)
+        return res
+      }
+      logger.error('Window object not defined')
+    } catch (error) {
+      logger.error('Error getting project path: ' + getErrorMessage(error))
+    }
+  }
+  handleOpenProjectPathPicker = async (_event: IpcMainInvokeEvent) => {
+    const windowManager = this.mainWindow
+    try {
+      if (windowManager) {
+        const res = await getOpenProjectPath(windowManager)
+        return res
+      }
+      logger.error('Window object not defined')
+      return { success: false, error: { title: 'Internal error', description: 'Window object not defined' } }
+    } catch (error) {
+      logger.error('Error getting project path: ' + getErrorMessage(error))
+      return { success: false, error: { title: 'Internal error', description: getErrorMessage(error) } }
+    }
+  }
+  handleFileSave = async (_event: IpcMainInvokeEvent, filePath: string, content: unknown) => {
+    const result = await this.projectService.saveFile(filePath, content as string)
+    if (result.success) {
+      // Update lastMtime for the saved file's watcher to suppress self-trigger
+      const watcherData = this.fileWatchers.get(filePath)
+      if (watcherData) {
+        try {
+          const stats = statSync(filePath)
+          if (stats.mtimeMs > watcherData.lastMtime) {
+            watcherData.lastMtime = stats.mtimeMs
+          }
+        } catch {
+          /* file may not exist */
+        }
+      }
+    }
+    return result
+  }
+  handleWriteProjectFiles = (_event: IpcMainInvokeEvent, files: unknown) =>
+    this.projectService.writeProjectFiles(files as Parameters<typeof this.projectService.writeProjectFiles>[0])
+  handleProjectOpenByPath = async (_event: IpcMainInvokeEvent, projectPath: string) => {
+    this.stopSimulatorAndNotify()
+    try {
+      const response = await this.projectService.openProjectByPath(projectPath)
+      if (response.success && response.data?.meta.path) {
+        this.currentProjectPath = response.data.meta.path
+      }
+      return response
+    } catch (_error) {
+      return {
+        success: false,
+        error: {
+          title: 'Error opening project',
+          description: 'Please try again',
+        },
+      }
+    }
+  }
+
+  handleReadProjectFiles = async (_event: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      this.stopSimulatorAndNotify()
+      const result = await this.projectService.readRawProjectFiles(projectPath)
+      if (result.success) {
+        this.currentProjectPath = projectPath
+        await this.projectService.updateProjectHistory(projectPath)
+      }
+      return result
+    } catch (_error) {
+      return {
+        success: false,
+        error: { title: 'Error reading project', description: 'Failed to read project files' },
+      }
+    }
+  }
+
+  // Pou-related handlers
+  handleCreatePouFile = async (_event: IpcMainInvokeEvent, props: CreatePouFileProps) => {
+    try {
+      const response = await this.pouService.createPouFile(props)
+      return response
+    } catch (error) {
+      logger.error('Error creating POU file: ' + getErrorMessage(error))
+      return {
+        success: false,
+        error: {
+          title: 'Error creating POU file',
+          description: 'Please try again',
+          error,
+        },
+      }
+    }
+  }
+  handleDeletePouFile = async (_event: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      const response = await this.pouService.deletePouFile(filePath)
+      return response
+    } catch (error) {
+      logger.error('Error deleting POU file: ' + getErrorMessage(error))
+      return {
+        success: false,
+        error: {
+          title: 'Error deleting POU file',
+          description: 'Please try again',
+          error,
+        },
+      }
+    }
+  }
+  handleRenamePouFile = async (
+    _event: IpcMainInvokeEvent,
+    data: {
+      filePath: string
+      newFileName: string
+      fileContent?: unknown
+    },
+  ) => {
+    try {
+      const response = await this.pouService.renamePouFile(data)
+      return response
+    } catch (error) {
+      logger.error('Error renaming POU file: ' + getErrorMessage(error))
+      return {
+        success: false,
+        error: {
+          title: 'Error renaming POU file',
+          description: 'Please try again',
+          error,
+        },
+      }
+    }
+  }
+
+  // App and system handlers
+  handleOpenExternalLink = async (_event: IpcMainInvokeEvent, url: string) => {
+    try {
+      await shell.openExternal(url)
+      return { success: true }
+    } catch (error) {
+      logger.error('Error opening external link: ' + getErrorMessage(error))
+      return { success: false, error }
+    }
+  }
+  handleGetSystemInfo = () => {
+    const appStore = this.store as unknown as { get: (key: string) => unknown }
+    const savedTheme = appStore.get('theme')
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      nativeTheme.themeSource = savedTheme
+    }
+
+    const isWindowMaximized = this.mainWindow && !this.mainWindow.isDestroyed() ? this.mainWindow.isMaximized() : false
+
+    return {
+      OS: platform,
+      architecture: 'x64',
+      prefersDarkMode: nativeTheme.shouldUseDarkColors,
+      isWindowMaximized,
+    }
+  }
+
+  /**
+   * Load every bundled .stlib archive shipped with the app.
+   *
+   * The archives live alongside the strucpp compiler binaries under
+   * `<resources>/strucpp/libs/` — same dev-vs-packaged resolution
+   * Electron uses for any other resource (`process.resourcesPath`
+   * after packaging, the project root in dev). The .stlib files are
+   * synced into that directory by the strucpp build pipeline so they
+   * always travel with the strucpp version the compiler targets.
+   *
+   * Returns the parsed JSON contents in alphabetical filename order so
+   * the renderer-side library tree renders deterministically across
+   * platforms. Errors (missing dir, malformed JSON) propagate back to
+   * the renderer so a startup failure surfaces as a UI error rather
+   * than silently dropping libraries.
+   */
+  // Library manager handlers — system-wide IEC 61131-3 library pool
+  // (bundled strucpp libs + user-installed .stlib / CODESYS imports).
+  // Library identity is the strucpp manifest `name` shared with the
+  // project's `libraries[]` field.
+  handleLibrariesLoadAll = async (): Promise<unknown[]> => this.libraryManagerModule.loadAll()
+  handleLibrariesListInstalled = async () => this.libraryManagerModule.listInstalled()
+  handleLibrariesInstallFromFile = async () => {
+    if (!this.mainWindow) return { success: false, error: 'No main window' }
+    const result = await dialog.showOpenDialog(this.mainWindow, {
+      title: 'Install Library',
+      filters: [
+        { name: 'Library files', extensions: ['stlib', 'lib', 'library'] },
+        { name: 'STruC++ archive', extensions: ['stlib'] },
+        { name: 'CODESYS library', extensions: ['lib', 'library'] },
+      ],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: true, canceled: true }
+    }
+    const installResult = await this.libraryManagerModule.installFromFile(result.filePaths[0])
+    if (installResult.success && !installResult.canceled) {
+      this.mainWindow.webContents.send('libraries:changed')
+    }
+    return installResult
+  }
+  handleLibrariesUninstall = async (_event: IpcMainInvokeEvent, name: string) => {
+    const result = this.libraryManagerModule.uninstall(name)
+    if (result.success) {
+      this.mainWindow?.webContents.send('libraries:changed')
+    }
+    return result
+  }
+
+  /**
+   * Catalog browse — proxies to the shared `listPublicLibraries`
+   * client.  Renderer can't hit autonomy-edge directly (CSP /
+   * cross-origin); the main process is the canonical egress.
+   *
+   * Errors are returned in a `{ success: false, error }` envelope
+   * rather than thrown across the IPC boundary so the modal can
+   * surface the failure without trying to read a rejected promise.
+   */
+  handleCatalogList = async (
+    _event: IpcMainInvokeEvent,
+    args: ListPublicLibrariesArgs,
+  ): Promise<{ success: true; data: ListPublicLibrariesResponse } | { success: false; error: string }> => {
+    try {
+      const data = await listPublicLibraries(this.catalogTransport, args ?? {})
+      return { success: true, data }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  handleCatalogInstallMany = async (_event: IpcMainInvokeEvent, publishedLibraryIds: string[]) => {
+    if (!Array.isArray(publishedLibraryIds) || publishedLibraryIds.length === 0) {
+      return { results: [] }
+    }
+    const batch = await this.libraryManagerModule.installFromCatalog(publishedLibraryIds)
+    // Fire one change event for the whole batch — saves N renderer
+    // refreshes for an N-library install.
+    if (batch.results.some((r) => r.success)) {
+      this.mainWindow?.webContents.send('libraries:changed')
+    }
+    return batch
+  }
+  handleStoreRetrieveRecent = async () => {
+    const pathToUserDataFolder = join(app.getPath('userData'), 'User')
+    const pathToUserHistoryFolder = join(pathToUserDataFolder, 'History')
+    const projectsFilePath = join(pathToUserHistoryFolder, 'projects.json')
+    const response = await this.projectService.readProjectHistory(projectsFilePath)
+    try {
+      return response
+    } catch (error) {
+      logger.error('Error reading history file: ' + getErrorMessage(error))
+      return []
+    }
+  }
+
+  /**
+   * Drop a project entry from `projects.json` (recent list).
+   * Disk is untouched — the project's files stay where they are. The
+   * renderer-side use case is the start-screen 3-dot menu's "Remove
+   * from list" action: a no-confirmation no-op as far as data goes,
+   * just hides the entry from the recents view.
+   */
+  handleRemoveProjectFromRecent = async (_event: unknown, projectPath: string) => {
+    try {
+      await this.projectService.removeProjectFromHistory(projectPath)
+      return { success: true }
+    } catch (error) {
+      logger.error('Error removing project from history: ' + getErrorMessage(error))
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  /**
+   * Recursively delete a project directory and drop it from the recent
+   * list. The destructive half (`fs.rm`) is gated by the project-
+   * service's `project.json` check — see `deleteProject` there for
+   * the safety rationale. Returns the service's response shape
+   * verbatim so the renderer can surface the failure message.
+   */
+  handleDeleteProject = async (_event: unknown, projectPath: string) => {
+    try {
+      return await this.projectService.deleteProject(projectPath)
+    } catch (error) {
+      logger.error('Error deleting project: ' + getErrorMessage(error))
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+  handleAppQuit = () => {
+    this.simulatorModule.stop()
+    if (this.mainWindow) {
+      this.mainWindow.destroy()
+    }
+    app.quit()
+  }
+
+  // Compiler service handlers
+  // TODO: This handle should be refactored to use a new approach on module implementation.
+  handleCompilerExportProjectXml = (
+    _ev: IpcMainInvokeEvent,
+    pathToUserProject: string,
+    dataToCreateXml: PLCProjectData,
+    xmlFormatTarget: 'old-editor' | 'codesys',
+  ) => this.compilerModule.createXmlFile(pathToUserProject, dataToCreateXml, xmlFormatTarget)
+
+  handleRunCompileProgram = (event: IpcMainEvent, args: Array<string | PLCProjectData>) => {
+    const mainProcessPort = event.ports[0]
+    void this.compilerModule.compileProgram(args, mainProcessPort, this).catch((error) => {
+      mainProcessPort.postMessage({
+        logLevel: 'error',
+        message: `${getErrorMessage(error)}\nStopping compilation process.`,
+      })
+      mainProcessPort.postMessage({ closePort: true })
+      mainProcessPort.close()
+    })
+  }
+
+  handleRunDebugCompilation = (event: IpcMainEvent, args: Array<string | PLCProjectData>) => {
+    const mainProcessPort = event.ports[0]
+    void this.compilerModule.compileForDebugger(args, mainProcessPort, this)
+  }
+
+  handleRunCompileLibrary = (event: IpcMainEvent, args: Array<string | PLCProjectData | boolean>) => {
+    const mainProcessPort = event.ports[0]
+    void this.compilerModule.compileLibrary(args, mainProcessPort, this)
+  }
+
+  /**
+   * Bridge method consumed by the compiler module and the Library
+   * Project build pipeline.  Resolves project-enabled library names
+   * to parsed `.stlib` archives — bundled libs are always included,
+   * the user-installed subset is filtered by name, and missing-
+   * but-enabled names come back for the caller to surface as a
+   * pre-compile "open the Library Manager" error.  Same call feeds
+   * both the program build (strucpp.compile's `libraries:` option)
+   * and the library build (compileStlib's dependency list) so the
+   * verify pass can't drift from the actual compile.
+   */
+  loadEnabledArchives = (enabledNames: string[]): { archives: unknown[]; missing: string[] } =>
+    this.libraryManagerModule.loadEnabledArchives(enabledNames)
+
+  // TODO: These handlers are outdated and should be removed.
+  // handleCompilerSetupEnvironment = (event: IpcMainEvent) => {
+  //   const replyPort = Array.isArray(event.ports) && event.ports.length > 0 ? event.ports[0] : undefined
+  //   if (replyPort) {
+  //     void this.compilerService.setupEnvironment(replyPort)
+  //   }
+  // }
+  // handleCompilerCreateBuildDirectory = (_ev: IpcMainInvokeEvent, pathToUserProject: string) =>
+  //   this.compilerService.createBuildDirectoryIfNotExist(pathToUserProject)
+  // handleCompilerBuildXmlFile = (
+  //   _ev: IpcMainInvokeEvent,
+  //   pathToUserProject: string,
+  //   dataToCreateXml: PLCProjectData,
+  // ) => this.compilerService.buildXmlFile(pathToUserProject, dataToCreateXml)
+  // handleCompilerBuildStProgram = (event: IpcMainEvent, pathToXMLFile: string) => {
+  //   const replyPort = Array.isArray(event.ports) && event.ports.length > 0 ? event.ports[0] : undefined
+  //   if (replyPort) {
+  //     this.compilerService.compileSTProgram(pathToXMLFile, replyPort)
+  //   }
+  // }
+  // handleCompilerGenerateCFiles = (event: IpcMainEvent, pathToStProgram: string) => {
+  //   const replyPort = Array.isArray(event.ports) && event.ports.length > 0 ? event.ports[0] : undefined
+  //   if (replyPort) {
+  //     this.compilerService.generateCFiles(pathToStProgram, replyPort)
+  //   }
+  // }
+
+  // Window controls handlers
+  handleWindowControlsClose = () => this.mainWindow?.close()
+  handleWindowControlsClosed = () => this.mainWindow?.destroy()
+  handleWindowControlsHide = () => this.mainWindow?.hide()
+  handleWindowControlsMinimize = () => this.mainWindow?.minimize()
+  handleWindowControlsMaximize = () => {
+    if (this.mainWindow?.isMaximized()) {
+      this.mainWindow?.restore()
+    } else {
+      this.mainWindow?.maximize()
+    }
+  }
+  handleWindowReload = () => {
+    this.simulatorModule.stop()
+    this.mainWindow?.webContents.reload()
+  }
+  handleWindowRebuildMenu = () => {
+    void this.menuBuilder.buildMenu().catch((error) => {
+      logger.error('Error rebuilding application menu:', error)
+    })
+  }
+
+  // Hardware handlers
+  handleHardwareGetAvailableCommunicationPorts = async () => this.hardwareModule.getAvailableSerialPorts()
+  handleHardwareGetAvailableBoards = async () => this.hardwareModule.getAvailableBoards()
+  handleHardwareRefreshCommunicationPorts = async () => this.hardwareModule.getAvailableSerialPorts()
+  handleHardwareRefreshAvailableBoards = async () => this.hardwareModule.getAvailableBoards()
+
+  // Package manager handlers
+  handlePackagesImportFromFile = async () => {
+    if (!this.mainWindow) return { success: false, error: 'No main window' }
+    const result = await dialog.showOpenDialog(this.mainWindow, {
+      title: 'Import Board Package',
+      filters: [{ name: 'VPP Package', extensions: ['vpp'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true }
+    }
+    const importResult = await this.packageManagerModule.importFromFile(result.filePaths[0])
+    if (importResult.success) {
+      this.mainWindow.webContents.send('packages:boards-updated')
+    }
+    return importResult
+  }
+  handlePackagesInstallFromUrl = async (
+    _event: IpcMainInvokeEvent,
+    args: { packageId: string; version: string; downloadUrl: string },
+  ) => {
+    const { packageId, version, downloadUrl } = args
+    // Download in the main process — the renderer can't reach the install
+    // pipeline directly, and main has clean fs / temp-dir ergonomics. The
+    // VPP catalog backend serves a private S3 bucket through its own API,
+    // so `downloadUrl` always points at the backend (never S3 directly).
+    let tempPath: string | null = null
+    try {
+      const response = await fetch(downloadUrl)
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Download failed: ${response.status} ${response.statusText}`,
+        }
+      }
+      const buffer = new Uint8Array(await response.arrayBuffer())
+      tempPath = join(app.getPath('temp'), `openplc-vpp-${packageId}-${version}-${randomUUID()}.vpp`)
+      await writeFile(tempPath, buffer)
+      const importResult = await this.packageManagerModule.importFromFile(tempPath)
+      if (importResult.success) {
+        this.mainWindow?.webContents.send('packages:boards-updated')
+      }
+      return importResult
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    } finally {
+      if (tempPath) {
+        // Best-effort cleanup — never fail the install because the temp
+        // file lingered; OS will reap it on reboot anyway.
+        await unlink(tempPath).catch(() => {})
+      }
+    }
+  }
+  handlePackagesListInstalled = async () => this.packageManagerModule.listInstalled()
+  handlePackagesUninstall = async (_event: IpcMainInvokeEvent, packageId: string) => {
+    const result = this.packageManagerModule.uninstall(packageId)
+    if (result.success) {
+      this.mainWindow?.webContents.send('packages:boards-updated')
+    }
+    return result
+  }
+  // Re-verify installed VPP signatures (invoked by the renderer when a project
+  // opens) and return the ids removed. If anything was dropped, notify the
+  // renderer so the board/device list refreshes via the existing subscription.
+  handlePackagesVerifySignatures = async (): Promise<string[]> => {
+    const removed = this.packageManagerModule.verifyInstalledSignatures()
+    if (removed.length > 0) {
+      this.mainWindow?.webContents.send('packages:boards-updated')
+    }
+    return removed
+  }
+  handlePackagesGetManifest = async (_event: IpcMainInvokeEvent, packageId: string) =>
+    this.packageManagerModule.getInstalledPackageManifest(packageId)
+
+  // Utility handlers
+  handleUtilGetPreviewImage = async (_event: IpcMainInvokeEvent, image: string, packagePath?: string) =>
+    this.hardwareModule.getBoardImagePreview(image, packagePath)
+  handleUtilLog = (_: IpcMainEvent, { level, message }: { level: 'info' | 'error'; message: string }) => {
+    logger[level](message)
+  }
+  handleReadDebugFile = async (_event: IpcMainInvokeEvent, projectPath: string, boardTarget: string) => {
+    try {
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      if (path.isAbsolute(boardTarget) || boardTarget.includes('..') || boardTarget.includes(path.sep)) {
+        return { success: false, error: 'Invalid board target' }
+      }
+
+      // STruC++ writes debug-map.json alongside generated_debug.cpp.
+      // Consumed by the renderer via parseDebugMap.
+      const debugMapPath = path.resolve(projectPath, 'build', boardTarget, 'src', 'debug-map.json')
+      const content = await fs.readFile(debugMapPath, 'utf-8')
+      return { success: true, content }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read debug-map.json',
+      }
+    }
+  }
+
+  handleDebuggerVerifyMd5 = async (
+    _event: IpcMainInvokeEvent,
+    connectionType: 'tcp' | 'rtu' | 'websocket' | 'simulator',
+    connectionParams: {
+      ipAddress?: string
+      port?: string
+      baudRate?: number
+      slaveId?: number
+      jwtToken?: string
+    },
+    expectedMd5: string,
+  ): Promise<{
+    success: boolean
+    match?: boolean
+    targetMd5?: string
+    targetEndian?: 'le' | 'be'
+    error?: string
+  }> => {
+    let client: ModbusTcpClient | ModbusRtuClient | null = null
+    let wsClient: WebSocketDebugTransport | null = null
+    try {
+      if (connectionType === 'simulator') {
+        const virtualPort = new VirtualSerialPort(this.simulatorModule)
+        client = new ModbusRtuClient({
+          port: 'simulator',
+          baudRate: 115200,
+          slaveId: 1,
+          timeout: 5000,
+          serialPort: virtualPort,
+        })
+        await client.connect()
+        const { md5: targetMd5, targetEndian } = await client.getMd5Hash()
+        const match = targetMd5.toLowerCase() === expectedMd5.toLowerCase()
+
+        // Keep the client for subsequent debug operations
+        this.debuggerModbusClient = client
+        this.debuggerConnectionType = 'simulator'
+
+        return { success: true, match, targetMd5, targetEndian }
+      } else if (connectionType === 'websocket') {
+        if (!connectionParams.ipAddress || !connectionParams.jwtToken) {
+          return { success: false, error: 'IP address and JWT token are required for WebSocket connection' }
+        }
+        if (!this.debuggerWebSocketClient) {
+          wsClient = new WebSocketDebugTransport({
+            host: connectionParams.ipAddress,
+            port: 8443,
+            token: connectionParams.jwtToken,
+            rejectUnauthorized: false,
+          })
+          await wsClient.connect()
+        } else {
+          wsClient = this.debuggerWebSocketClient
+        }
+
+        const { md5: targetMd5, targetEndian } = await wsClient.getMd5Hash()
+
+        const match = targetMd5.toLowerCase() === expectedMd5.toLowerCase()
+
+        if (!this.debuggerWebSocketClient) {
+          this.debuggerWebSocketClient = wsClient
+          this.debuggerTargetIp = connectionParams.ipAddress
+          this.debuggerJwtToken = connectionParams.jwtToken
+          this.debuggerConnectionType = 'websocket'
+        }
+
+        return { success: true, match, targetMd5, targetEndian }
+      } else if (connectionType === 'tcp') {
+        if (!connectionParams.ipAddress) {
+          return { success: false, error: 'IP address is required for TCP connection' }
+        }
+        client = new ModbusTcpClient({
+          host: connectionParams.ipAddress,
+          port: 502,
+          timeout: 5000,
+        })
+      } else {
+        if (!connectionParams.port || !connectionParams.baudRate || connectionParams.slaveId === undefined) {
+          return { success: false, error: 'Port, baud rate, and slave ID are required for RTU connection' }
+        }
+
+        // Reuse existing RTU client if already connected to the same port
+        if (
+          this.debuggerModbusClient &&
+          this.debuggerConnectionType === 'rtu' &&
+          this.debuggerRtuPort === connectionParams.port
+        ) {
+          const { md5: targetMd5, targetEndian } = await this.debuggerModbusClient.getMd5Hash()
+          const match = targetMd5.toLowerCase() === expectedMd5.toLowerCase()
+          return { success: true, match, targetMd5, targetEndian }
+        }
+
+        client = new ModbusRtuClient({
+          port: connectionParams.port,
+          baudRate: connectionParams.baudRate,
+          slaveId: connectionParams.slaveId,
+          timeout: 5000,
+        })
+      }
+
+      await client.connect()
+      const { md5: targetMd5, targetEndian } = await client.getMd5Hash()
+
+      const match = targetMd5.toLowerCase() === expectedMd5.toLowerCase()
+
+      if (connectionType === 'tcp') {
+        client.disconnect()
+      } else {
+        this.debuggerModbusClient = client
+        this.debuggerConnectionType = 'rtu'
+        this.debuggerRtuPort = connectionParams.port!
+        this.debuggerRtuBaudRate = connectionParams.baudRate!
+        this.debuggerRtuSlaveId = connectionParams.slaveId!
+      }
+
+      return { success: true, match, targetMd5, targetEndian }
+    } catch (error) {
+      client?.disconnect()
+      wsClient?.disconnect()
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error during MD5 verification',
+      }
+    }
+  }
+
+  handleReadProgramStMd5 = async (
+    _event: IpcMainInvokeEvent,
+    projectPath: string,
+    boardTarget: string,
+  ): Promise<{ success: boolean; md5?: string; error?: string }> => {
+    try {
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      if (path.isAbsolute(boardTarget) || boardTarget.includes('..') || boardTarget.includes(path.sep)) {
+        return { success: false, error: 'Invalid board target' }
+      }
+
+      // STruC++ writes the MD5 into debug-map.json alongside the pointer
+      // tables. It's the single source of truth the editor and the target
+      // agree on (target exposes the same value via FC 0x45).
+      const debugMapPath = path.resolve(projectPath, 'build', boardTarget, 'src', 'debug-map.json')
+      const raw = await fs.readFile(debugMapPath, 'utf-8')
+      const parsed = JSON.parse(raw) as { md5?: unknown }
+
+      if (typeof parsed.md5 !== 'string' || !/^[a-fA-F0-9]{32}$/.test(parsed.md5)) {
+        return { success: false, error: 'debug-map.json is missing a valid md5 field' }
+      }
+      return { success: true, md5: parsed.md5 }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read debug-map.json',
+      }
+    }
+  }
+
+  handleDebuggerGetVariablesList = async (
+    _event: IpcMainInvokeEvent,
+    variableIndexes: number[],
+  ): Promise<{
+    success: boolean
+    tick?: number
+    lastIndex?: number
+    data?: number[]
+    error?: string
+    needsReconnect?: boolean
+  }> => {
+    // If connection type is null, the debugger was intentionally disconnected.
+    // Return a silent failure so the renderer polling ignores it.
+    if (this.debuggerConnectionType === null) {
+      return { success: false, error: 'Debugger not connected' }
+    }
+
+    if (this.debuggerConnectionType === 'websocket') {
+      if (!this.debuggerWebSocketClient) {
+        if (this.debuggerReconnecting) {
+          return { success: false, error: 'Reconnection in progress', needsReconnect: true }
+        }
+
+        this.debuggerReconnecting = true
+        try {
+          if (!this.debuggerTargetIp || !this.debuggerJwtToken) {
+            this.debuggerReconnecting = false
+            return { success: false, error: 'No target IP or JWT token stored', needsReconnect: true }
+          }
+          this.debuggerWebSocketClient = new WebSocketDebugTransport({
+            host: this.debuggerTargetIp,
+            port: 8443,
+            token: this.debuggerJwtToken,
+            rejectUnauthorized: false,
+          })
+          await this.debuggerWebSocketClient.connect()
+          this.debuggerReconnecting = false
+        } catch (error) {
+          this.debuggerWebSocketClient = null
+          this.debuggerReconnecting = false
+          return { success: false, error: `Failed to reconnect: ${getErrorMessage(error)}`, needsReconnect: true }
+        }
+      }
+
+      try {
+        const result = await this.debuggerWebSocketClient.getVariablesList(variableIndexes)
+
+        if (result.success && result.data) {
+          return {
+            success: true,
+            tick: result.tick,
+            lastIndex: result.lastIndex,
+            data: Array.from(result.data),
+          }
+        }
+
+        return { success: false, error: result.error }
+      } catch (error) {
+        if (this.debuggerWebSocketClient) {
+          this.debuggerWebSocketClient.disconnect()
+          this.debuggerWebSocketClient = null
+        }
+        return { success: false, error: getErrorMessage(error), needsReconnect: true }
+      }
+    }
+
+    if (!this.debuggerModbusClient) {
+      if (this.debuggerReconnecting) {
+        return { success: false, error: 'Reconnection in progress', needsReconnect: true }
+      }
+
+      this.debuggerReconnecting = true
+      try {
+        if (this.debuggerConnectionType === 'simulator') {
+          const virtualPort = new VirtualSerialPort(this.simulatorModule)
+          this.debuggerModbusClient = new ModbusRtuClient({
+            port: 'simulator',
+            baudRate: 115200,
+            slaveId: 1,
+            timeout: 5000,
+            serialPort: virtualPort,
+          })
+        } else if (this.debuggerConnectionType === 'tcp') {
+          if (!this.debuggerTargetIp) {
+            this.debuggerReconnecting = false
+            return { success: false, error: 'No target IP address stored', needsReconnect: true }
+          }
+          this.debuggerModbusClient = new ModbusTcpClient({
+            host: this.debuggerTargetIp,
+            port: 502,
+            timeout: 5000,
+          })
+        } else if (this.debuggerConnectionType === 'rtu') {
+          if (!this.debuggerRtuPort || !this.debuggerRtuBaudRate || this.debuggerRtuSlaveId === null) {
+            this.debuggerReconnecting = false
+            return { success: false, error: 'No RTU connection parameters stored', needsReconnect: true }
+          }
+          this.debuggerModbusClient = new ModbusRtuClient({
+            port: this.debuggerRtuPort,
+            baudRate: this.debuggerRtuBaudRate,
+            slaveId: this.debuggerRtuSlaveId,
+            timeout: 5000,
+          })
+        } else {
+          this.debuggerReconnecting = false
+          return { success: false, error: 'No connection type stored', needsReconnect: true }
+        }
+
+        await this.debuggerModbusClient.connect()
+        this.debuggerReconnecting = false
+      } catch (error) {
+        this.debuggerModbusClient = null
+        this.debuggerReconnecting = false
+        return { success: false, error: `Failed to reconnect: ${getErrorMessage(error)}`, needsReconnect: true }
+      }
+    }
+
+    try {
+      const result = await this.debuggerModbusClient.getVariablesList(variableIndexes)
+
+      if (result.success && result.data) {
+        return {
+          success: true,
+          tick: result.tick,
+          lastIndex: result.lastIndex,
+          data: Array.from(result.data),
+        }
+      }
+
+      return { success: false, error: result.error }
+    } catch (error) {
+      if (this.debuggerModbusClient) {
+        this.debuggerModbusClient.disconnect()
+        this.debuggerModbusClient = null
+      }
+      return { success: false, error: getErrorMessage(error), needsReconnect: true }
+    }
+  }
+
+  handleDebuggerConnect = async (
+    _event: IpcMainInvokeEvent,
+    connectionType: 'tcp' | 'rtu' | 'websocket' | 'simulator',
+    connectionParams: {
+      ipAddress?: string
+      port?: string
+      baudRate?: number
+      slaveId?: number
+      jwtToken?: string
+    },
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      if (connectionType === 'simulator') {
+        if (this.debuggerModbusClient) {
+          this.debuggerModbusClient.disconnect()
+          this.debuggerModbusClient = null
+        }
+
+        const virtualPort = new VirtualSerialPort(this.simulatorModule)
+        this.debuggerModbusClient = new ModbusRtuClient({
+          port: 'simulator',
+          baudRate: 115200,
+          slaveId: 1,
+          timeout: 5000,
+          serialPort: virtualPort,
+        })
+        await this.debuggerModbusClient.connect()
+
+        // MD5 fetch warms the connection and exercises the
+        // runtime's endianness-sentinel path.  Endianness detection
+        // itself is handled at the editor's verify-MD5 step (see
+        // handleDebuggerVerifyMd5) where the result feeds the swap
+        // layer; here we just need the connection live.
+        await this.debuggerModbusClient.getMd5Hash()
+      } else if (connectionType === 'websocket') {
+        if (this.debuggerModbusClient) {
+          this.debuggerModbusClient.disconnect()
+          this.debuggerModbusClient = null
+        }
+
+        if (!connectionParams.ipAddress || !connectionParams.jwtToken) {
+          return { success: false, error: 'IP address and JWT token are required for WebSocket connection' }
+        }
+
+        if (!this.debuggerWebSocketClient || this.debuggerConnectionType !== 'websocket') {
+          if (this.debuggerWebSocketClient) {
+            this.debuggerWebSocketClient.disconnect()
+            this.debuggerWebSocketClient = null
+          }
+
+          this.debuggerWebSocketClient = new WebSocketDebugTransport({
+            host: connectionParams.ipAddress,
+            port: 8443,
+            token: connectionParams.jwtToken,
+            rejectUnauthorized: false,
+          })
+          await this.debuggerWebSocketClient.connect()
+        }
+
+        this.debuggerTargetIp = connectionParams.ipAddress
+        this.debuggerJwtToken = connectionParams.jwtToken
+      } else if (connectionType === 'tcp') {
+        if (this.debuggerModbusClient) {
+          this.debuggerModbusClient.disconnect()
+          this.debuggerModbusClient = null
+        }
+
+        if (!connectionParams.ipAddress) {
+          return { success: false, error: 'IP address is required for TCP connection' }
+        }
+        this.debuggerModbusClient = new ModbusTcpClient({
+          host: connectionParams.ipAddress,
+          port: 502,
+          timeout: 5000,
+        })
+        await this.debuggerModbusClient.connect()
+        this.debuggerTargetIp = connectionParams.ipAddress
+      } else {
+        if (!connectionParams.port || !connectionParams.baudRate || connectionParams.slaveId === undefined) {
+          return { success: false, error: 'Port, baud rate, and slave ID are required for RTU connection' }
+        }
+
+        if (
+          this.debuggerModbusClient &&
+          this.debuggerConnectionType === 'rtu' &&
+          this.debuggerRtuPort === connectionParams.port &&
+          this.debuggerRtuBaudRate === connectionParams.baudRate &&
+          this.debuggerRtuSlaveId === connectionParams.slaveId
+        ) {
+          this.debuggerReconnecting = false
+          return { success: true }
+        }
+
+        if (this.debuggerModbusClient) {
+          this.debuggerModbusClient.disconnect()
+          this.debuggerModbusClient = null
+        }
+
+        this.debuggerModbusClient = new ModbusRtuClient({
+          port: connectionParams.port,
+          baudRate: connectionParams.baudRate,
+          slaveId: connectionParams.slaveId,
+          timeout: 5000,
+        })
+        await this.debuggerModbusClient.connect()
+        this.debuggerRtuPort = connectionParams.port
+        this.debuggerRtuBaudRate = connectionParams.baudRate
+        this.debuggerRtuSlaveId = connectionParams.slaveId
+      }
+
+      this.debuggerConnectionType = connectionType
+      this.debuggerReconnecting = false
+
+      return { success: true }
+    } catch (error) {
+      this.debuggerModbusClient = null
+      this.debuggerWebSocketClient = null
+      this.debuggerTargetIp = null
+      this.debuggerConnectionType = null
+      this.debuggerRtuPort = null
+      this.debuggerRtuBaudRate = null
+      this.debuggerRtuSlaveId = null
+      this.debuggerJwtToken = null
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleDebuggerDisconnect = (_event: IpcMainInvokeEvent): Promise<{ success: boolean }> => {
+    if (this.debuggerModbusClient) {
+      this.debuggerModbusClient.disconnect()
+      this.debuggerModbusClient = null
+    }
+    if (this.debuggerWebSocketClient) {
+      this.debuggerWebSocketClient.disconnect()
+      this.debuggerWebSocketClient = null
+    }
+    this.debuggerTargetIp = null
+    this.debuggerConnectionType = null
+    this.debuggerRtuPort = null
+    this.debuggerRtuBaudRate = null
+    this.debuggerRtuSlaveId = null
+    this.debuggerJwtToken = null
+    this.debuggerReconnecting = false
+    return Promise.resolve({ success: true })
+  }
+
+  handleDebuggerSetVariable = async (
+    _event: IpcMainInvokeEvent,
+    variableIndex: number,
+    force: boolean,
+    valueBuffer?: Uint8Array,
+  ): Promise<{ success: boolean; error?: string }> => {
+    const buffer = valueBuffer ? Buffer.from(valueBuffer) : undefined
+
+    if (this.debuggerConnectionType === 'websocket') {
+      if (!this.debuggerWebSocketClient) {
+        logger.info('[IPC Handler] WebSocket client not connected')
+        return { success: false, error: 'Not connected to debugger' }
+      }
+
+      try {
+        // Shared transport takes Uint8Array; convert from the IPC's
+        // Buffer payload (Buffer is a Uint8Array subclass so the cast
+        // is a no-op at runtime, but TS wants the explicit step).
+        const valueBytes = buffer ? new Uint8Array(buffer) : undefined
+        const result = await this.debuggerWebSocketClient.setVariable(variableIndex, force, valueBytes)
+        logger.info('[IPC Handler] WebSocket setVariable result: ' + JSON.stringify(result))
+        return result
+      } catch (error) {
+        logger.error('[IPC Handler] WebSocket setVariable error: ' + getErrorMessage(error))
+        return { success: false, error: getErrorMessage(error) }
+      }
+    }
+
+    if (!this.debuggerModbusClient) {
+      logger.info('[IPC Handler] Modbus client not connected')
+      return { success: false, error: 'Not connected to debugger' }
+    }
+
+    try {
+      const result = await this.debuggerModbusClient.setVariable(variableIndex, force, buffer)
+      logger.info('[IPC Handler] Modbus setVariable result: ' + JSON.stringify(result))
+      return result
+    } catch (error) {
+      logger.error('[IPC Handler] Modbus setVariable error: ' + getErrorMessage(error))
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  // ===================== FILE WATCHER HANDLERS =====================
+
+  /**
+   * Validate that a file path is within the current project root.
+   * Resolves symlinks to prevent directory traversal attacks.
+   */
+  private validateFilePath(filePath: string): boolean {
+    if (!this.currentProjectPath) return false
+    try {
+      const resolved = realpathSync(resolve(filePath))
+      const projectRoot = realpathSync(resolve(this.currentProjectPath))
+      return resolved.startsWith(projectRoot + sep) || resolved === projectRoot
+    } catch {
+      // realpathSync fails if the file doesn't exist yet — fall back to resolve only
+      const resolved = resolve(filePath)
+      const projectRoot = resolve(this.currentProjectPath)
+      return resolved.startsWith(projectRoot + sep) || resolved === projectRoot
+    }
+  }
+
+  // ===================== SIMULATOR HANDLERS =====================
+
+  /** Stops the simulator and notifies the renderer so it can update UI state. */
+  private stopSimulatorAndNotify(): void {
+    if (this.simulatorModule.isRunning()) {
+      this.simulatorModule.stop()
+      this.mainWindow?.webContents.send('simulator:stopped')
+    }
+  }
+
+  // ===================== ETHERCAT DISCOVERY HANDLERS =====================
+
+  handleEtherCATGetInterfaces = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; data?: NetworkInterface[]; error?: string }> => {
+    try {
+      const result = await this.makeRuntimeApiRequest<{ interfaces: NetworkInterface[] }>(
+        ipAddress,
+        '/api/discovery/interfaces',
+        (data: string) => {
+          const response = JSON.parse(data) as { status: string; interfaces: NetworkInterface[] }
+          return { interfaces: response.interfaces || [] }
+        },
+      )
+      if (result.success && result.data) {
+        return { success: true, data: result.data.interfaces }
+      } else {
+        return { success: false, error: result.success ? 'No data returned' : result.error }
+      }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATGetStatus = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; data?: EtherCATServiceStatusResponse; error?: string }> => {
+    try {
+      const result = await this.makeRuntimeApiRequest<EtherCATServiceStatusResponse>(
+        ipAddress,
+        '/api/discovery/ethercat/status',
+        (data: string) => {
+          const parsed = JSON.parse(data) as unknown
+          if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            typeof (parsed as { available?: unknown }).available !== 'boolean' ||
+            typeof (parsed as { message?: unknown }).message !== 'string'
+          ) {
+            throw new Error('EtherCAT status response did not match expected shape')
+          }
+          return parsed as EtherCATServiceStatusResponse
+        },
+      )
+      if (result.success && result.data) {
+        return { success: true, data: result.data }
+      } else {
+        return { success: false, error: result.success ? 'No data returned' : result.error }
+      }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATScan = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    scanRequest: EtherCATScanRequest,
+  ): Promise<{ success: boolean; data?: EtherCATScanResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify({
+        plugin: 'ethercat',
+        command: 'scan',
+        params: { interface: scanRequest.interface, timeout_ms: scanRequest.timeout_ms },
+      })
+      const scanTimeout = (scanRequest.timeout_ms || 5000) + 10000
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/plugin-command',
+        postData,
+        (data: string) => {
+          const pluginResponse = JSON.parse(data) as Record<string, unknown>
+          if (pluginResponse.error) throw new Error(pluginResponse.error as string)
+          return {
+            status: (pluginResponse.status as string) ?? 'success',
+            devices: (pluginResponse.devices as EtherCATScanResponse['devices']) ?? [],
+            message: (pluginResponse.message as string) ?? '',
+            scan_time_ms: (pluginResponse.scan_time_ms as number) ?? 0,
+            interface: scanRequest.interface,
+          } as EtherCATScanResponse
+        },
+        scanTimeout,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATTest = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    testRequest: EtherCATTestRequest,
+  ): Promise<{ success: boolean; data?: EtherCATTestResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify(testRequest)
+      const testTimeout = (testRequest.timeout_ms || 3000) + 10000
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/discovery/ethercat/test',
+        postData,
+        (data: string) => JSON.parse(data) as EtherCATTestResponse,
+        testTimeout,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATValidate = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    validateRequest: EtherCATValidateRequest,
+  ): Promise<{ success: boolean; data?: EtherCATValidateResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify(validateRequest)
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/discovery/ethercat/validate',
+        postData,
+        (data: string) => JSON.parse(data) as EtherCATValidateResponse,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATGetRuntimeStatus = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; data?: EtherCATRuntimeStatusResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify({
+        plugin: 'ethercat',
+        command: 'status',
+      })
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/plugin-command',
+        postData,
+        (data: string) => {
+          const pluginResponse = JSON.parse(data) as Record<string, unknown>
+          if (pluginResponse.error) throw new Error(pluginResponse.error as string)
+          return pluginResponse as unknown as EtherCATRuntimeStatusResponse
+        },
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  // ===================== ESI REPOSITORY HANDLERS =====================
+
+  handleESILoadRepositoryIndex = async (_event: IpcMainInvokeEvent, projectPath: string) =>
+    this.wrapServiceCall(async () => {
+      const index = await this.esiService.loadRepositoryIndex(projectPath)
+      return { success: true as const, data: index }
+    })
+
+  handleESISaveXmlFile = async (_event: IpcMainInvokeEvent, projectPath: string, itemId: string, xmlContent: string) =>
+    this.wrapServiceCall(() => this.esiService.saveXmlFile(projectPath, itemId, xmlContent))
+
+  handleESILoadXmlFile = async (_event: IpcMainInvokeEvent, projectPath: string, itemId: string) =>
+    this.wrapServiceCall(() => this.esiService.loadXmlFile(projectPath, itemId))
+
+  handleESIDeleteXmlFile = async (_event: IpcMainInvokeEvent, projectPath: string, itemId: string) =>
+    this.wrapServiceCall(() => this.esiService.deleteRepositoryItemV2(projectPath, itemId))
+
+  handleESIParseAndSaveFile = async (
+    _event: IpcMainInvokeEvent,
+    projectPath: string,
+    filename: string,
+    content: string,
+  ) => this.wrapServiceCall(() => this.esiService.parseAndSaveFile(projectPath, filename, content))
+
+  handleESIClearRepository = async (_event: IpcMainInvokeEvent, projectPath: string) =>
+    this.wrapServiceCall(() => this.esiService.clearRepository(projectPath))
+
+  handleESILoadDeviceFull = async (
+    _event: IpcMainInvokeEvent,
+    projectPath: string,
+    itemId: string,
+    deviceIndex: number,
+  ) =>
+    this.wrapServiceCall(async () => {
+      const xmlResult = await this.esiService.loadXmlFile(projectPath, itemId)
+      if (!xmlResult.success || !xmlResult.content) {
+        return { success: false as const, error: xmlResult.error || 'XML file not found' }
+      }
+      return parseESIDeviceFull(xmlResult.content, deviceIndex)
+    })
+
+  handleESILoadRepositoryLight = async (_event: IpcMainInvokeEvent, projectPath: string) =>
+    this.wrapServiceCall(() => this.esiService.loadRepositoryLight(projectPath))
+
+  handleESIMigrateRepository = async (_event: IpcMainInvokeEvent, projectPath: string) =>
+    this.wrapServiceCall(() => this.esiService.migrateRepositoryToV2(projectPath))
+
+  handleSimulatorLoadFirmware = async (
+    _event: IpcMainInvokeEvent,
+    hexPath: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const fs = await import('fs/promises')
+      const hexContent = await fs.readFile(hexPath, 'utf-8')
+      this.simulatorModule.loadAndRun(hexContent)
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleSimulatorStop = (_event: IpcMainInvokeEvent): Promise<{ success: boolean }> => {
+    this.simulatorModule.stop()
+    return Promise.resolve({ success: true })
+  }
+
+  handleSimulatorIsRunning = (_event: IpcMainInvokeEvent): Promise<boolean> => {
+    return Promise.resolve(this.simulatorModule.isRunning())
+  }
+
+  // Using watchFile (polling-based) instead of watch for better macOS compatibility
+  // fs.watch can fail when editors use "safe write" (write to temp file, then rename)
+  handleFileWatchStart = (
+    _event: IpcMainInvokeEvent,
+    filePath: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!this.validateFilePath(filePath)) {
+      return Promise.resolve({ success: false, error: 'Path is outside the project directory' })
+    }
+
+    return new Promise((res) => {
+      if (this.fileWatchers.has(filePath)) {
+        res({ success: true })
+        return
+      }
+
+      stat(filePath, (statErr, stats) => {
+        if (statErr) {
+          res({ success: false, error: `Failed to stat file: ${statErr.message}` })
+          return
+        }
+
+        const initialMtime = stats.mtimeMs
+
+        try {
+          watchFile(filePath, { interval: 1000 }, (curr, prev) => {
+            const watcherData = this.fileWatchers.get(filePath)
+            if (!watcherData) return
+
+            if (curr.mtimeMs > prev.mtimeMs && curr.mtimeMs > watcherData.lastMtime) {
+              watcherData.lastMtime = curr.mtimeMs
+              this.mainWindow?.webContents.send('file:external-change', { filePath })
+            }
+          })
+
+          this.fileWatchers.set(filePath, { lastMtime: initialMtime })
+          res({ success: true })
+        } catch (error) {
+          res({ success: false, error: `Failed to watch file: ${getErrorMessage(error)}` })
+        }
+      })
+    })
+  }
+
+  handleFileWatchStop = (_event: IpcMainInvokeEvent, filePath: string): { success: boolean; error?: string } => {
+    if (!this.validateFilePath(filePath)) {
+      return { success: false, error: 'Path is outside the project directory' }
+    }
+    if (this.fileWatchers.has(filePath)) {
+      unwatchFile(filePath)
+      this.fileWatchers.delete(filePath)
+    }
+    return { success: true }
+  }
+
+  handleFileWatchStopAll = (_event: IpcMainInvokeEvent): { success: boolean } => {
+    for (const [filePath] of this.fileWatchers) {
+      unwatchFile(filePath)
+    }
+    this.fileWatchers.clear()
+    return { success: true }
+  }
+
+  handleFileReadContent = (
+    _event: IpcMainInvokeEvent,
+    filePath: string,
+  ): Promise<{ success: boolean; content?: string; error?: string }> => {
+    if (!this.validateFilePath(filePath)) {
+      return Promise.resolve({ success: false, error: 'Path is outside the project directory' })
+    }
+    return new Promise((res) => {
+      readFile(filePath, 'utf-8', (err, content) => {
+        if (err) {
+          res({ success: false, error: `Failed to read file: ${err.message}` })
+        } else {
+          res({ success: true, content })
+        }
+      })
+    })
+  }
+
+  // ===================== EVENT HANDLERS =====================
+  mainIpcEventHandlers = {
+    handleUpdateTheme: (_event: unknown, theme?: 'light' | 'dark' | 'nineties') => {
+      const newTheme = theme ?? (nativeTheme.shouldUseDarkColors ? 'light' : 'dark')
+      // nativeTheme only models light/dark; the 90's skin is UI-only and rides
+      // on a light base (mirrors MenuBuilder.updateAppTheme). The store keeps
+      // the full preference — it is the desktop's durable source of truth,
+      // analogous to the edge backend's user preference on the web app.
+      nativeTheme.themeSource = newTheme === 'dark' ? 'dark' : 'light'
+      const appStore = this.store as unknown as { set: (key: string, value: string) => void }
+      appStore.set('theme', newTheme)
+    },
+    handleGetTheme: (): 'light' | 'dark' | 'nineties' | null => {
+      const appStore = this.store as unknown as { get: (key: string) => unknown }
+      const stored = appStore.get('theme')
+      return stored === 'light' || stored === 'dark' || stored === 'nineties' ? stored : null
+    },
+    createPou: () => this.mainWindow?.webContents.send('pou:createPou', { ok: true }),
+  }
+}
+
+export default MainProcessBridge

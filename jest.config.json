@@ -1,0 +1,69 @@
+{
+  "displayName": "src",
+  "rootDir": ".",
+  "roots": ["<rootDir>/src"],
+  "setupFiles": ["<rootDir>/src/jest-vi-shim.ts"],
+  "moduleDirectories": ["node_modules"],
+  "moduleFileExtensions": ["js", "json", "jsx", "ts", "tsx"],
+  "moduleNameMapper": {
+    "^@root/(.*)$": "<rootDir>/src/$1",
+    "\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$": "<rootDir>/configs/mocks/fileMock.js",
+    "\\.(css|less|sass|scss)$": "identity-obj-proxy"
+  },
+  "testEnvironment": "jsdom",
+  "testEnvironmentOptions": {
+    "url": "http://localhost/"
+  },
+  "testMatch": ["<rootDir>/src/**/?(*.)+(spec|test).(ts|tsx)", "<rootDir>/src/**/__tests__/**/*.(ts|tsx)"],
+  "testPathIgnorePatterns": ["/node_modules/", "src/frontend/utils/__tests__/notify-no-write-permission.test.ts"],
+  "transformIgnorePatterns": ["node_modules/(?!strucpp)"],
+  "transform": {
+    "\\.(ts|tsx|js|jsx)$": [
+      "ts-jest",
+      {
+        "tsconfig": "tsconfig.json"
+      }
+    ]
+  },
+  "collectCoverageFrom": [
+    "src/frontend/store/slices/**/*.ts",
+    "src/frontend/utils/**/*.ts",
+    "src/backend/shared/**/*.ts",
+    "src/middleware/adapters/editor/**/*.ts",
+    "!src/**/*.d.ts",
+    "!src/**/__tests__/**",
+    "!src/**/*.{test,spec}.{ts,tsx}",
+    "!src/**/index.ts",
+    "!src/**/types.ts",
+    "!src/**/types/**",
+    "!src/jest-vi-shim.ts"
+  ],
+  "coverageDirectory": "coverage/src",
+  "coverageReporters": ["text", "text-summary", "lcov", "json-summary"],
+  "coverageThreshold": {
+    "src/frontend/store/slices/": {
+      "branches": 0,
+      "functions": 100,
+      "lines": 100,
+      "statements": 100
+    },
+    "src/frontend/utils/": {
+      "branches": 0,
+      "functions": 100,
+      "lines": 100,
+      "statements": 100
+    },
+    "src/backend/shared/": {
+      "branches": 0,
+      "functions": 100,
+      "lines": 100,
+      "statements": 100
+    },
+    "src/middleware/adapters/editor/": {
+      "branches": 0,
+      "functions": 100,
+      "lines": 100,
+      "statements": 100
+    }
+  }
+}
