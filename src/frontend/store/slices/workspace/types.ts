@@ -1,5 +1,6 @@
 import type {
   Architecture,
+  DebugCheckpointEntry,
   DebugConnectionType,
   DebugTreeNode,
   FbInstanceInfo,
@@ -100,6 +101,17 @@ export type WorkspaceState = {
      *  per-poll batch size and any other transport-specific behaviour.
      *  Null when no session is active. */
     debugConnectionType: DebugConnectionType | null
+    // -------- Online-debugger run control (FC 0x46-0x4B) --------
+    /** Checkpoint map from the compiler's `checkpoint-map.json`, resolved to
+     *  POU-local coordinates.  Drives which gutter lines are breakpointable
+     *  and resolves armed breakpoints → runtime checkpoint ids. */
+    debugCheckpointMap: DebugCheckpointEntry[]
+    /** Armed breakpoints as composite `<pou>:<line>` keys (1-based line). */
+    debugBreakpoints: string[]
+    /** True while a task is halted at a checkpoint (breakpoint / single-step). */
+    debugHalted: boolean
+    /** Checkpoint id the target is currently halted on, or null when running. */
+    debugStoppedCheckpointId: number | null
     /** Target's native byte order for multi-byte variable values on
      *  the wire.  Detected from the 0xDEAD sentinel in the MD5
      *  response: LE target writes the trailer as `[0xAD, 0xDE]`, BE
@@ -186,6 +198,12 @@ export type WorkspaceActions = {
   setDebugMd5Mismatch: (mismatch: { runtimeMd5: string; localMd5: string } | null) => void
   setDebugConnectionType: (connectionType: DebugConnectionType | null) => void
   setDebugTargetEndian: (endian: 'le' | 'be') => void
+  // Run control
+  setDebugCheckpointMap: (entries: DebugCheckpointEntry[]) => void
+  toggleBreakpoint: (compositeKey: string) => void
+  setBreakpoints: (compositeKeys: string[]) => void
+  clearBreakpoints: () => void
+  setDebugHalt: (halted: boolean, checkpointId: number | null) => void
   clearDebugState: () => void
   clearFbDebugContext: () => void
   removeDebugVariable: (compositeKey: string) => void

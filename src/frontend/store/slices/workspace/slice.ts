@@ -55,6 +55,11 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
     debugMd5Mismatch: null,
     debugConnectionType: null,
     debugTargetEndian: 'le',
+    // Run control
+    debugCheckpointMap: [],
+    debugBreakpoints: [],
+    debugHalted: false,
+    debugStoppedCheckpointId: null,
     // Project loading state
     isProjectLoading: false,
     projectLoadingMessage: '',
@@ -393,6 +398,44 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
         }),
       )
     },
+    setDebugCheckpointMap: (entries) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugCheckpointMap = entries
+        }),
+      )
+    },
+    toggleBreakpoint: (compositeKey: string) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          const idx = workspace.debugBreakpoints.indexOf(compositeKey)
+          if (idx >= 0) workspace.debugBreakpoints.splice(idx, 1)
+          else workspace.debugBreakpoints.push(compositeKey)
+        }),
+      )
+    },
+    setBreakpoints: (compositeKeys: string[]) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugBreakpoints = compositeKeys
+        }),
+      )
+    },
+    clearBreakpoints: () => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugBreakpoints = []
+        }),
+      )
+    },
+    setDebugHalt: (halted: boolean, checkpointId: number | null) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugHalted = halted
+          workspace.debugStoppedCheckpointId = halted ? checkpointId : null
+        }),
+      )
+    },
     clearDebugState: () => {
       setState(
         produce(({ workspace }: WorkspaceSlice) => {
@@ -414,6 +457,12 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
           workspace.debugMd5Mismatch = null
           workspace.debugConnectionType = null
           workspace.debugTargetEndian = 'le'
+          // Session-scoped run-control state resets; placed breakpoints
+          // (debugBreakpoints) persist across sessions like a CoDeSys IDE,
+          // so re-arming on the next connect is automatic.
+          workspace.debugCheckpointMap = []
+          workspace.debugHalted = false
+          workspace.debugStoppedCheckpointId = null
         }),
       )
     },

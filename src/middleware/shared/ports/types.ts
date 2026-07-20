@@ -1126,6 +1126,24 @@ export interface DebugCompileResult {
 }
 
 /**
+ * One entry of the online-debugger `checkpoint-map.json` the forked
+ * STruC++ compiler emits when built with `debugCheckpoints`.  Each ST
+ * statement gets a project-global `id` that the runtime arms as a
+ * breakpoint (FC 0x46); the editor resolves that id back to the POU and
+ * source line the breakpoint gutter placed it on.
+ *
+ * `pou` / `line` are POU-local coordinates (1-based line) — the loading
+ * service resolves the compiler's whole-`program.st` span through the
+ * source map before the entry reaches the store, so the UI never deals
+ * in concatenated-file line numbers.
+ */
+export interface DebugCheckpointEntry {
+  id: number
+  pou: string
+  line: number
+}
+
+/**
  * Result of building a `.stlib` from a Library Project.  Mirrors the
  * shape of `CompileResult` (success / error) plus the artefact path
  * the console surfaces so the user can find the produced archive.

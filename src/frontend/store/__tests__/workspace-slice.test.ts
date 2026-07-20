@@ -619,4 +619,60 @@ describe('createWorkspaceSlice', () => {
     })
     expect(workspace.canEdit).toBe(true)
   })
+
+  // -------------------------------------------------------------------------
+  // Run control (breakpoints + halt state)
+  // -------------------------------------------------------------------------
+  it('setDebugCheckpointMap stores the checkpoint map', () => {
+    const entries = [
+      { id: 0, pou: 'main', line: 10 },
+      { id: 1, pou: 'main', line: 11 },
+    ]
+    store.getState().workspaceActions.setDebugCheckpointMap(entries)
+    expect(store.getState().workspace.debugCheckpointMap).toEqual(entries)
+  })
+
+  it('toggleBreakpoint adds then removes a composite key', () => {
+    store.getState().workspaceActions.toggleBreakpoint('main:10')
+    expect(store.getState().workspace.debugBreakpoints).toEqual(['main:10'])
+
+    store.getState().workspaceActions.toggleBreakpoint('helper:4')
+    expect(store.getState().workspace.debugBreakpoints).toEqual(['main:10', 'helper:4'])
+
+    store.getState().workspaceActions.toggleBreakpoint('main:10')
+    expect(store.getState().workspace.debugBreakpoints).toEqual(['helper:4'])
+  })
+
+  it('setBreakpoints replaces the whole set; clearBreakpoints empties it', () => {
+    store.getState().workspaceActions.setBreakpoints(['a:1', 'b:2'])
+    expect(store.getState().workspace.debugBreakpoints).toEqual(['a:1', 'b:2'])
+
+    store.getState().workspaceActions.clearBreakpoints()
+    expect(store.getState().workspace.debugBreakpoints).toEqual([])
+  })
+
+  it('setDebugHalt sets halted + checkpoint id, and clears the id when running', () => {
+    store.getState().workspaceActions.setDebugHalt(true, 7)
+    expect(store.getState().workspace.debugHalted).toBe(true)
+    expect(store.getState().workspace.debugStoppedCheckpointId).toBe(7)
+
+    store.getState().workspaceActions.setDebugHalt(false, 7)
+    expect(store.getState().workspace.debugHalted).toBe(false)
+    expect(store.getState().workspace.debugStoppedCheckpointId).toBeNull()
+  })
+
+  it('clearDebugState resets session run-control state but keeps placed breakpoints', () => {
+    store.getState().workspaceActions.setDebugCheckpointMap([{ id: 0, pou: 'main', line: 10 }])
+    store.getState().workspaceActions.setBreakpoints(['main:10'])
+    store.getState().workspaceActions.setDebugHalt(true, 0)
+
+    store.getState().workspaceActions.clearDebugState()
+
+    const { workspace } = store.getState()
+    expect(workspace.debugCheckpointMap).toEqual([])
+    expect(workspace.debugHalted).toBe(false)
+    expect(workspace.debugStoppedCheckpointId).toBeNull()
+    // Breakpoints intentionally survive a session teardown (CoDeSys-style).
+    expect(workspace.debugBreakpoints).toEqual(['main:10'])
+  })
 })
