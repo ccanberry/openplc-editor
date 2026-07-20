@@ -157,8 +157,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   // ---------------------------------------------------------------------------
 
   const handleBuild = useCallback(
-    async (overrides?: { compileOnly?: boolean; cleanBuild?: boolean }) => {
-      if (isCompiling) return
+    async (overrides?: { compileOnly?: boolean; cleanBuild?: boolean; debugCheckpoints?: boolean }): Promise<boolean> => {
+      if (isCompiling) return false
 
       // Reveal the console and re-attach it to the tail so build output is
       // visible from the first line, even if the console was collapsed or the
@@ -188,7 +188,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       // write never gates the build.
       if (canEdit) {
         const saved = await executeSave()
-        if (!saved) return
+        if (!saved) return false
       }
 
       setIsCompiling(true)
@@ -220,7 +220,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           if (response !== 1) {
             // User declined — abort the build and leave the PLC running.
             setIsCompiling(false)
-            return
+            return false
           }
           const stopResult = await runtime.stopPlc()
           if (!stopResult.success) {
@@ -230,7 +230,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               message: `Failed to stop PLC: ${stopResult.error ?? 'Unknown error'}`,
             })
             setIsCompiling(false)
-            return
+            return false
           }
           useOpenPLCStore.getState().deviceActions.setPlcRuntimeStatus('STOPPED')
           addLog({ id: crypto.randomUUID(), level: 'info', message: 'PLC stopped before build.' })
@@ -246,6 +246,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       // aliases.
       const freshProjectData = useOpenPLCStore.getState().projectActions.getCompileReadyProjectData()
 
+      // Success is reported back so the debugger's compile-and-deploy path can
+      // gate connecting on a clean deploy.  Normal callers `void` the result.
+      let buildOk = false
       try {
         // Track whether the compile stream already surfaced an error so we
         // don't log a second, generic "Compilation failed" after a failed
@@ -262,6 +265,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             // `handleBuild()` with no overrides also get an upload.
             compileOnly: overrides?.compileOnly ?? false,
             cleanBuild: overrides?.cleanBuild ?? false,
+            // Debug deploy: instrument the program so the runtime cross-compiles
+            // a halt-able `.so` and emits checkpoint-map.json.  Off for normal
+            // builds. Set by the debugger's compile-and-deploy path.
+            debugCheckpoints: overrides?.debugCheckpoints ?? false,
             isSimulator: isSimulatorBoard,
             runtimeIpAddress: deviceDefinitions.configuration.runtimeIpAddress || null,
             runtimeJwtToken: jwtToken || null,
@@ -318,11 +325,13 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         if (!result.success && !streamedError) {
           addLog({ id: crypto.randomUUID(), level: 'error', message: result.error ?? 'Compilation failed' })
         }
+        buildOk = result.success
       } catch (err: unknown) {
         addLog({ id: crypto.randomUUID(), level: 'error', message: `Build error: ${getErrorMessage(err)}` })
       } finally {
         setIsCompiling(false)
       }
+      return buildOk
     },
     [
       compiler,
@@ -795,30 +804,54 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         return
       }
 
-      // Debug compilation. Resolve alias-bound locations to concrete
-      // addresses first (same pre-compile snapshot the build/upload paths
-      // use) — the compiler only understands `%…` literals, not alias names.
-      const freshProjectData = useOpenPLCStore.getState().projectActions.getCompileReadyProjectData()
-      consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Starting debug compilation...' })
-      const debugCompileResult = await compiler.compileForDebug(
-        { projectData: freshProjectData, boardTarget, projectPath },
-        (event) => logCompilerEvent(event, consoleActions.addLog),
-      )
-      if (!debugCompileResult.success) {
-        consoleActions.addLog({
-          id: crypto.randomUUID(),
-          level: 'error',
-          message: `Debug compilation failed: ${debugCompileResult.error ?? 'Unknown error'}`,
-        })
-        setIsDebuggerProcessing(false)
-        return
+      // `isRuntimeTarget` gates two things: the network debug DEPLOY below,
+      // and the "PLC stopped, start it?" dialog inside MD5 verification.  Tied
+      // to whether the active channel needs the runtime alive — websocket/tcp
+      // targets do, rtu/simulator targets don't.
+      const isRuntimeTarget = debugConfig.connectionType === 'websocket' || debugConfig.connectionType === 'tcp'
+
+      if (isRuntimeTarget) {
+        // Debug deploy (CoDeSys "download"): instrument every statement, upload
+        // to the runtime, cross-compile the halt-able `.so` and deploy it to
+        // the target — THEN connect.  This is what makes GUI breakpoints
+        // actually pause the running program: a normal deploy ships a
+        // checkpoint-free `.so` that run control has nothing to halt on.
+        // Reuses the full build/upload path (pre-build save, stop-PLC prompt,
+        // alias resolution, upload) via `handleBuild`; the checkpoint-map.json
+        // that compile writes next to the build lights the breakpoint gutter.
+        const deployed = await handleBuild({ compileOnly: false, debugCheckpoints: true })
+        if (!deployed) {
+          consoleActions.addLog({
+            id: crypto.randomUUID(),
+            level: 'info',
+            message: 'Debugger session cancelled: debug deploy did not complete.',
+          })
+          setIsDebuggerProcessing(false)
+          return
+        }
+      } else {
+        // Local transports (simulator / RTU): instrument the program in the
+        // project build dir only — there is no network runtime to deploy to.
+        // Resolve alias-bound locations to concrete addresses first (same
+        // pre-compile snapshot the build/upload paths use) — the compiler only
+        // understands `%…` literals, not alias names.
+        const freshProjectData = useOpenPLCStore.getState().projectActions.getCompileReadyProjectData()
+        consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Starting debug compilation...' })
+        const debugCompileResult = await compiler.compileForDebug(
+          { projectData: freshProjectData, boardTarget, projectPath },
+          (event) => logCompilerEvent(event, consoleActions.addLog),
+        )
+        if (!debugCompileResult.success) {
+          consoleActions.addLog({
+            id: crypto.randomUUID(),
+            level: 'error',
+            message: `Debug compilation failed: ${debugCompileResult.error ?? 'Unknown error'}`,
+          })
+          setIsDebuggerProcessing(false)
+          return
+        }
       }
 
-      // `isRuntimeTarget` here only gates the "PLC stopped, start it?"
-      // dialog inside MD5 verification.  Tied to whether the active
-      // channel needs the runtime alive — websocket/tcp targets do,
-      // rtu/simulator targets don't.
-      const isRuntimeTarget = debugConfig.connectionType === 'websocket' || debugConfig.connectionType === 'tcp'
       void handleMd5Verification(projectPath, boardTarget, debugConfig, isRuntimeTarget)
     } catch (error: unknown) {
       consoleActions.addLog({
@@ -843,6 +876,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     executeSave,
     addLog,
     resolveDebugConfigWithUx,
+    handleBuild,
   ])
 
   // ---------------------------------------------------------------------------

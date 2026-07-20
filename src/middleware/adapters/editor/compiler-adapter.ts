@@ -224,6 +224,10 @@ export function createEditorCompilerAdapter(): CompilerPort {
             // board's resolved `vppIo` capability; non-VPP boards
             // ignore this argument and the field is a no-op.
             args.vendorScreenData ?? null,
+            // Online-debugger "debug deploy": instrument every statement so the
+            // cross-compiled `.so` is halt-able by run control.  Off for normal
+            // builds (invariant: production deploys carry no checkpoints).
+            args.debugCheckpoints ?? false,
           ],
           (data: Record<string, unknown>) => {
             // Extract simulator firmware path BEFORE the closePort early return,

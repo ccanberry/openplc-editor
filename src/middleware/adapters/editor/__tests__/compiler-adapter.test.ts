@@ -212,11 +212,15 @@ describe('createEditorCompilerAdapter', () => {
         // Args layout (verbatim, in order):
         //   projectPath, boardTarget, boardCore, compileOnly,
         //   projectData, runtimeIpAddress, runtimeJwtToken,
-        //   cleanBuild, communicationPort, vendorScreenData.
+        //   cleanBuild, communicationPort, vendorScreenData,
+        //   debugCheckpoints.
         // `vendorScreenData` is the 10th slot — threaded through to
         // the shared compile pipeline for `vpp_config.h` emission on
         // arduino-cli VPP boards (Arduino Opta, P1AM).  `null` when
         // the caller didn't supply one (non-VPP build).
+        // `debugCheckpoints` is the 11th slot — `false` on normal
+        // builds (production deploys stay checkpoint-free); `true`
+        // only on the debugger's instrumented deploy.
         [
           '/path/to/project',
           'Arduino Mega',
@@ -228,6 +232,7 @@ describe('createEditorCompilerAdapter', () => {
           false,
           null,
           null,
+          false,
         ],
         expect.any(Function),
       )
@@ -360,6 +365,25 @@ describe('createEditorCompilerAdapter', () => {
 
       const args = (window.bridge.runCompileProgram as jest.Mock).mock.calls[0][0]
       expect(args[3]).toBe(false)
+    })
+
+    it('threads debugCheckpoints:true into the 11th IPC slot on a debug deploy', async () => {
+      const promise = adapter.compileProgram(
+        {
+          projectData: mockProjectData,
+          boardTarget: 'Arduino Mega',
+          projectPath: '/path',
+          debugCheckpoints: true,
+        },
+        () => {},
+      )
+
+      await flushMicrotasks()
+      compileCallback!({ closePort: true })
+      await promise
+
+      const args = (window.bridge.runCompileProgram as jest.Mock).mock.calls[0][0]
+      expect(args[10]).toBe(true)
     })
 
     it('forwards plcStatus progress events even without a message', async () => {

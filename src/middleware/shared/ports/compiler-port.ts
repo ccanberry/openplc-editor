@@ -52,6 +52,12 @@ export interface CompileProgramArgs {
    *  gates emission on the board's resolved `vppIo` capability;
    *  non-VPP boards ignore this. */
   vendorScreenData?: Record<string, unknown>
+  /** Online-debugger "debug deploy": when `true`, STruC++ instruments every
+   *  statement with a checkpoint (+ `debug_hook.cpp`, `checkpoint-map.json`)
+   *  so the deployed `.so` can be halted/stepped by run control.  Off by
+   *  default — a normal Build/Upload stays checkpoint-free.  Set only by the
+   *  debug session's compile-and-deploy path. */
+  debugCheckpoints?: boolean
 }
 
 export interface DebugCompileArgs {

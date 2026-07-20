@@ -2444,6 +2444,7 @@ class CompilerModule {
       cleanBuild,
       communicationPort,
       vendorScreenData,
+      debugCheckpoints,
     ] = args as [
       string,
       string,
@@ -2455,6 +2456,7 @@ class CompilerModule {
       boolean | undefined,
       string | null | undefined,
       Record<string, unknown> | undefined,
+      boolean | undefined,
     ]
 
     // Resolve board info uniformly across hals.json + installed VPP
@@ -2749,6 +2751,9 @@ class CompilerModule {
         communicationPort: communicationPort ?? undefined,
         ...(vppModbusState ? { vppModbusState } : {}),
         vendorScreenData: effectiveVendorScreenData,
+        // Debug deploy: instrument the program so the runtime cross-compiles a
+        // halt-able `.so`.  Off by default keeps normal builds checkpoint-free.
+        ...(debugCheckpoints ? { debugCheckpoints: true } : {}),
       },
       platformPort,
       (event) => {
@@ -2792,6 +2797,29 @@ class CompilerModule {
       })
       _mainProcessPort.close()
       return
+    }
+
+    // Debug deploy: persist the debugger artefacts next to the build so the
+    // online debugger can read them off disk — `debug-map.json` (variable
+    // address map + program MD5, used by MD5 verification and value reads) and
+    // `checkpoint-map.json` (line → checkpoint id for the breakpoint gutter).
+    // The v4 bundle uploaded these to the runtime in memory; the debugger reads
+    // the local copies.  Present only on a `debugCheckpoints` compile.  Best-
+    // effort — a write failure must not fail the deploy, only degrade the
+    // debugger UI.
+    if (result.success && result.debugArtifacts) {
+      await mkdir(sourceTargetFolderPath, { recursive: true })
+      for (const [name, content] of Object.entries(result.debugArtifacts)) {
+        try {
+          await writeFile(join(sourceTargetFolderPath, name), content, 'utf-8')
+          _mainProcessPort.postMessage({ logLevel: 'info', message: `${name} written for the debugger.` })
+        } catch (error) {
+          _mainProcessPort.postMessage({
+            logLevel: 'warning',
+            message: `Could not write ${name}: ${getErrorMessage(error)}`,
+          })
+        }
+      }
     }
 
     // Runtime v4 / v3 / Arduino-direct paths all converge here.  If

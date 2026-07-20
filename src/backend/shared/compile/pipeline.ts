@@ -234,6 +234,14 @@ export interface RunCompilePipelineArgs {
    *  `resolveTargetCapabilities(boardEntry)`, keeping capability
    *  semantics in one place. */
   vendorScreenData?: Record<string, unknown>
+  /** Online-debugger "debug deploy": when `true`, STruC++ instruments
+   *  every statement with a checkpoint (+ emits `debug_hook.cpp` and a
+   *  `checkpoint-map.json`), so the `.so` the runtime cross-compiles from
+   *  this bundle can be halted/stepped by the editor's run control.  Off
+   *  by default — a normal build stays uninstrumented (invariant: the
+   *  production deploy contains no checkpoints).  Set only by the debug
+   *  session's compile path. */
+  debugCheckpoints?: boolean
 }
 
 export interface RunCompilePipelineResult {
@@ -256,6 +264,14 @@ export interface RunCompilePipelineResult {
    *  the pipeline returned via `compileOnly` or before reaching
    *  upload. */
   uploaded?: boolean
+  /** Debugger artefacts (filename → content) that must live on disk under
+   *  `build/<target>/src` for the online debugger: `debug-map.json` (variable
+   *  address map + program MD5) and `checkpoint-map.json` (line → checkpoint
+   *  id for the breakpoint gutter).  Present only on a debug deploy
+   *  (`debugCheckpoints`); the v4 upload path composes the bundle in memory,
+   *  so the editor adapter persists these itself.  `undefined` on normal
+   *  builds — which keeps them off disk exactly as before. */
+  debugArtifacts?: Record<string, string>
 }
 
 // ---------------------------------------------------------------------------
@@ -353,6 +369,7 @@ async function runCompilePipelineInner(
     cacheDebugData,
     vppModbusState,
     vendorScreenData,
+    debugCheckpoints,
   } = args
 
   // Resolve the board's effective capabilities from `boardEntry`.
@@ -459,6 +476,9 @@ async function runCompilePipelineInner(
     libraries: libraryArchives,
     missingLibraries,
     hasCBlocks,
+    // Debug deploy: instrument statements so the deployed `.so` is halt-able.
+    // Off by default keeps the normal build byte-identical (checkpoint-free).
+    ...(debugCheckpoints ? { debugCheckpoints: true } : {}),
   })
   if (strucppResult.splitterFallbackMessage) {
     emit({ stage: 'st', message: strucppResult.splitterFallbackMessage, level: 'info' })
@@ -486,6 +506,18 @@ async function runCompilePipelineInner(
   if (cacheDebugData) {
     cacheDebugData(md5, debugMapJson)
   }
+  // On a debug deploy, gather the artefacts the online debugger reads off
+  // disk (`build/<target>/src`): the variable/MD5 map and the gutter's
+  // line→id map.  The v4 bundle uploads in memory, so the editor adapter
+  // persists these.  Empty/absent on normal builds → nothing hits disk.
+  const debugArtifacts: Record<string, string> | undefined = debugCheckpoints
+    ? {
+        ...(debugMapJson ? { 'debug-map.json': debugMapJson } : {}),
+        ...(strucppFilesMap['checkpoint-map.json']
+          ? { 'checkpoint-map.json': strucppFilesMap['checkpoint-map.json'] }
+          : {}),
+      }
+    : undefined
 
   // ---------------------------------------------------------------------
   // Step 4a: Runtime v4 branch — compose v4 bundle, run version
@@ -565,7 +597,7 @@ async function runCompilePipelineInner(
 
     if (compileOnly) {
       emit({ stage: 'done', message: 'Compile only mode — skipping upload to runtime.', level: 'info' })
-      return { success: true, md5, uploaded: false }
+      return { success: true, md5, uploaded: false, ...(debugArtifacts ? { debugArtifacts } : {}) }
     }
 
     if (!deviceContext) {
@@ -574,7 +606,7 @@ async function runCompilePipelineInner(
         message: 'Runtime not configured or not logged in. Skipping upload to runtime.',
         level: 'warning',
       })
-      return { success: true, md5, uploaded: false }
+      return { success: true, md5, uploaded: false, ...(debugArtifacts ? { debugArtifacts } : {}) }
     }
 
     // Strucpp-compatibility gate: a 4.0.x runtime can't load the
@@ -595,7 +627,7 @@ async function runCompilePipelineInner(
       return bailError(emit, 'upload', 'Failed to upload to runtime.', uploadResult.errors)
     }
     emit({ stage: 'done', message: 'Upload complete.', level: 'info' })
-    return { success: true, md5, uploaded: true }
+    return { success: true, md5, uploaded: true, ...(debugArtifacts ? { debugArtifacts } : {}) }
   }
 
   // ---------------------------------------------------------------------

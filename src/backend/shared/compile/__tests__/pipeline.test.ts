@@ -338,6 +338,86 @@ describe('runCompilePipeline — arduino direct path', () => {
   })
 })
 
+describe('runCompilePipeline — debug deploy (debugCheckpoints)', () => {
+  const debugV4Args = () =>
+    makeArgs({
+      isSimulator: false,
+      isRuntimeV4: true,
+      boardRuntime: 'openplc-compiler',
+      deviceContext: deviceContextFixture,
+      debugCheckpoints: true,
+    })
+
+  it('threads debugCheckpoints:true into the strucpp build so the deployed .so is instrumented', async () => {
+    const port = makePort()
+    const { emit } = captureEvents()
+    await runCompilePipeline(debugV4Args(), port, emit)
+    expect(mockedStrucpp).toHaveBeenCalledWith(expect.objectContaining({ debugCheckpoints: true }))
+  })
+
+  it('surfaces debug-map.json + checkpoint-map.json as debugArtifacts and rides them in the bundle', async () => {
+    mockedStrucpp.mockReturnValueOnce({
+      success: true,
+      files: [
+        { name: 'debug-map.json', content: '{"md5":"abc"}' },
+        { name: 'checkpoint-map.json', content: '[{"id":0,"pou":"main","line":1}]' },
+      ],
+      errors: [],
+      warnings: [],
+      md5Hash: 'a'.repeat(32),
+      splitterFallbackMessage: null,
+      debugMapSummary: null,
+    })
+    const port = makePort()
+    const { emit } = captureEvents()
+    const result = await runCompilePipeline(debugV4Args(), port, emit)
+    expect(result.success).toBe(true)
+    expect(result.uploaded).toBe(true)
+    expect(result.debugArtifacts).toEqual({
+      'debug-map.json': '{"md5":"abc"}',
+      'checkpoint-map.json': '[{"id":0,"pou":"main","line":1}]',
+    })
+    // The instrumented artefacts also ride inside the uploaded bundle so the
+    // runtime cross-compiles the halt-able .so from the same sources.
+    const uploadedBundle = (port.uploadRuntimeV4 as jest.Mock).mock.calls[0][0].bundle as Record<string, string>
+    expect(uploadedBundle['checkpoint-map.json']).toBe('[{"id":0,"pou":"main","line":1}]')
+  })
+
+  it('omits checkpoint-map.json from debugArtifacts when the build produced no checkpoints', async () => {
+    // Default mock returns only debug-map.json (no checkpoint-map.json).
+    const port = makePort()
+    const { emit } = captureEvents()
+    const result = await runCompilePipeline(debugV4Args(), port, emit)
+    expect(result.debugArtifacts).toEqual({ 'debug-map.json': '{}' })
+  })
+
+  it('surfaces debugArtifacts on the compile-only debug build (no upload)', async () => {
+    const port = makePort()
+    const { emit } = captureEvents()
+    const result = await runCompilePipeline({ ...debugV4Args(), compileOnly: true }, port, emit)
+    expect(result.uploaded).toBe(false)
+    expect(result.debugArtifacts).toEqual({ 'debug-map.json': '{}' })
+    expect(port.uploadRuntimeV4).not.toHaveBeenCalled()
+  })
+
+  it('a normal build passes no debugCheckpoints flag and returns no debugArtifacts', async () => {
+    const port = makePort()
+    const { emit } = captureEvents()
+    const result = await runCompilePipeline(
+      makeArgs({
+        isSimulator: false,
+        isRuntimeV4: true,
+        boardRuntime: 'openplc-compiler',
+        deviceContext: deviceContextFixture,
+      }),
+      port,
+      emit,
+    )
+    expect(mockedStrucpp).toHaveBeenCalledWith(expect.not.objectContaining({ debugCheckpoints: expect.anything() }))
+    expect(result.debugArtifacts).toBeUndefined()
+  })
+})
+
 describe('runCompilePipeline — runtime v4 path', () => {
   it('composes the v4 bundle and uploads when deviceContext is present + runtime is compatible', async () => {
     const port = makePort()
