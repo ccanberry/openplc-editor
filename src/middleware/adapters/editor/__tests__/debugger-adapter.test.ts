@@ -35,6 +35,10 @@ beforeEach(() => {
       success: true,
       content: 'debug_vars[] = { ... }',
     }),
+    readCheckpointMap: jest.fn().mockResolvedValue({
+      success: true,
+      content: '[{"id":0,"pou":"main","line":10}]',
+    }),
     debuggerSetBreakpoints: jest.fn().mockResolvedValue({ success: true }),
     debuggerRunControl: jest.fn().mockResolvedValue({ success: true }),
     debuggerGetStopInfo: jest.fn().mockResolvedValue({ success: true, stopped: true, checkpointId: 7 }),
@@ -319,6 +323,26 @@ describe('readDebugFile', () => {
     const result = await adapter.readDebugFile('/path', 'board')
 
     expect(result).toEqual({ success: false, error: 'Read error' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// readCheckpointMap
+// ---------------------------------------------------------------------------
+
+describe('readCheckpointMap', () => {
+  it('delegates to the bridge with project path and board target', async () => {
+    const result = await adapter.readCheckpointMap('/home/user/project', 'arduino_mega')
+
+    expect(window.bridge.readCheckpointMap).toHaveBeenCalledWith('/home/user/project', 'arduino_mega')
+    expect(result).toEqual({ success: true, content: '[{"id":0,"pou":"main","line":10}]' })
+  })
+
+  it('catches bridge errors', async () => {
+    ;(window.bridge.readCheckpointMap as jest.Mock).mockRejectedValue(new Error('ENOENT'))
+    const result = await adapter.readCheckpointMap('/path', 'board')
+
+    expect(result).toEqual({ success: false, error: 'ENOENT' })
   })
 })
 

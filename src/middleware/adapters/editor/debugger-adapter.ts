@@ -94,6 +94,17 @@ export function createEditorDebuggerAdapter(): DebuggerPort {
       }
     },
 
+    async readCheckpointMap(
+      projectPath: string,
+      boardTarget: string,
+    ): Promise<{ success: boolean; content?: string; error?: string }> {
+      try {
+        return await window.bridge.readCheckpointMap(projectPath, boardTarget)
+      } catch (err) {
+        return { success: false, error: getErrorMessage(err) }
+      }
+    },
+
     async setBreakpoints(ids: number[]): Promise<{ success: boolean; error?: string }> {
       try {
         return await window.bridge.debuggerSetBreakpoints(ids)

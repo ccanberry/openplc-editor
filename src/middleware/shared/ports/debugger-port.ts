@@ -94,6 +94,16 @@ export interface DebuggerPort {
   ): Promise<{ success: boolean; content?: string; error?: string }>
 
   /**
+   * Read the online-debugger `checkpoint-map.json` (line ⇄ checkpoint-id
+   * table) produced by a `debugCheckpoints` STruC++ build.  Absent on a
+   * normal build — callers treat a failure as "run control unavailable".
+   */
+  readCheckpointMap(
+    projectPath: string,
+    boardTarget: string,
+  ): Promise<{ success: boolean; content?: string; error?: string }>
+
+  /**
    * Arm the given set of STruC++ checkpoint ids as breakpoints (replaces the
    * current set).  Ids come from the compiler's `checkpoint-map.json`.  An
    * empty array is equivalent to `runControl('clear')`.

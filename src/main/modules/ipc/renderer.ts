@@ -387,6 +387,12 @@ const rendererProcessBridge = {
   ): Promise<{ success: boolean; content?: string; error?: string }> =>
     ipcRenderer.invoke('util:read-debug-file', projectPath, boardTarget),
 
+  readCheckpointMap: (
+    projectPath: string,
+    boardTarget: string,
+  ): Promise<{ success: boolean; content?: string; error?: string }> =>
+    ipcRenderer.invoke('util:read-checkpoint-map', projectPath, boardTarget),
+
   debuggerVerifyMd5: (
     connectionType: 'tcp' | 'rtu' | 'websocket' | 'simulator',
     connectionParams: {

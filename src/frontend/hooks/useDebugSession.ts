@@ -15,6 +15,7 @@ import { useCallback, useRef } from 'react'
 import type { DebugConnectionConfig, DebugTreeNode, FbInstanceInfo } from '../../middleware/shared/ports/types'
 import { useDebugger, useSimulator } from '../../middleware/shared/providers'
 import { useOpenPLCStore } from '../store'
+import { parseCheckpointMap } from '../utils/checkpoint-map'
 import { parseDebugMap } from '../utils/debug-parser'
 import {
   buildDebugVariableTreeMap,
@@ -78,6 +79,28 @@ export function useDebugSession(): UseDebugSessionReturn {
         }
 
         wsActions.setDebugCContent(debugFileResult.content)
+
+        // Online-debugger run control: load the checkpoint map if this is a
+        // debugCheckpoints build.  Best-effort — a normal build has no
+        // checkpoint-map.json, so run control just stays inert.
+        try {
+          const checkpointResult = await debuggerPort.readCheckpointMap(projectPath, boardTarget)
+          if (checkpointResult.success && checkpointResult.content) {
+            const checkpoints = parseCheckpointMap(checkpointResult.content)
+            wsActions.setDebugCheckpointMap(checkpoints)
+            if (checkpoints.length > 0) {
+              logActions.addLog({
+                id: crypto.randomUUID(),
+                level: 'info',
+                message: `Run control enabled: ${checkpoints.length} checkpoints available for breakpoints.`,
+              })
+            }
+          } else {
+            wsActions.setDebugCheckpointMap([])
+          }
+        } catch {
+          wsActions.setDebugCheckpointMap([])
+        }
 
         const instances = project.data.configurations.resource.instances
 

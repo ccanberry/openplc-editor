@@ -903,6 +903,7 @@ class MainProcessBridge implements MainIpcModule {
     this.registerHandle('util:get-preview-image', this.handleUtilGetPreviewImage)
     this.ipcMain.on('util:log', this.handleUtilLog)
     this.registerHandle('util:read-debug-file', this.handleReadDebugFile)
+    this.registerHandle('util:read-checkpoint-map', this.handleReadCheckpointMap)
 
     // ===================== DEBUGGER =====================
     this.registerHandle('debugger:verify-md5', this.handleDebuggerVerifyMd5)
@@ -1483,6 +1484,29 @@ class MainProcessBridge implements MainIpcModule {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to read debug-map.json',
+      }
+    }
+  }
+
+  handleReadCheckpointMap = async (_event: IpcMainInvokeEvent, projectPath: string, boardTarget: string) => {
+    try {
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      if (path.isAbsolute(boardTarget) || boardTarget.includes('..') || boardTarget.includes(path.sep)) {
+        return { success: false, error: 'Invalid board target' }
+      }
+
+      // The debugCheckpoints-instrumented STruC++ build writes
+      // checkpoint-map.json next to debug-map.json.  Absent on a normal
+      // (non-debug) build — the renderer treats that as "no run control".
+      const checkpointMapPath = path.resolve(projectPath, 'build', boardTarget, 'src', 'checkpoint-map.json')
+      const content = await fs.readFile(checkpointMapPath, 'utf-8')
+      return { success: true, content }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read checkpoint-map.json',
       }
     }
   }
