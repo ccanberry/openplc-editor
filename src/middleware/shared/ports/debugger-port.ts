@@ -30,6 +30,19 @@
 
 import type { DebugConnectionConfig, DebugSetResult, DebugVariableResult, Md5VerifyResult, Unsubscribe } from './types'
 
+/** Online-debugger run-control operation (maps to runtime FC 0x47-0x4A). */
+export type DebugRunControlOp = 'clear' | 'continue' | 'pause' | 'step'
+
+/** Halt state of the target, as reported by the runtime STOPINFO PDU (0x4B). */
+export interface DebugStopInfo {
+  success: boolean
+  /** True when a task is halted at a checkpoint (breakpoint hit or single-step). */
+  stopped?: boolean
+  /** STruC++ checkpoint id the target is halted on (only meaningful when stopped). */
+  checkpointId?: number
+  error?: string
+}
+
 export interface DebuggerPort {
   /**
    * Connect to a debug target.
@@ -79,6 +92,26 @@ export interface DebuggerPort {
     projectPath: string,
     boardTarget: string,
   ): Promise<{ success: boolean; content?: string; error?: string }>
+
+  /**
+   * Arm the given set of STruC++ checkpoint ids as breakpoints (replaces the
+   * current set).  Ids come from the compiler's `checkpoint-map.json`.  An
+   * empty array is equivalent to `runControl('clear')`.
+   */
+  setBreakpoints(ids: number[]): Promise<{ success: boolean; error?: string }>
+
+  /**
+   * Issue a run-control command: `clear` (remove all breakpoints), `continue`
+   * (resume from a halt), `pause` (halt at the next checkpoint), or `step`
+   * (advance one checkpoint then re-halt).
+   */
+  runControl(op: DebugRunControlOp): Promise<{ success: boolean; error?: string }>
+
+  /**
+   * Poll the target's halt state (STOPINFO).  Drives the UI's stopped/running
+   * indicator and the current-line highlight while a breakpoint is held.
+   */
+  getStopInfo(): Promise<DebugStopInfo>
 
   /**
    * Subscribe to debugger disconnection events (e.g., simulator stopped, connection lost).

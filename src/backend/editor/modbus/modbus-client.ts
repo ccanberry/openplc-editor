@@ -346,4 +346,40 @@ export class ModbusTcpClient {
       return { success: false, error: getErrorMessage(error) }
     }
   }
+
+  /**
+   * Send a pre-built debug PDU (built by `modbus-pdu.ts`) wrapped in an
+   * MBAP header and resolve the raw response PDU bytes (function code +
+   * payload, the 7-byte MBAP header stripped).  Generic seam for the
+   * run-control operations (FC 0x46-0x4B) so no wire layout is duplicated
+   * in this client.  Throws on transport/transaction failure.
+   */
+  async sendDebugCommand(pdu: Uint8Array): Promise<Uint8Array> {
+    if (!this.socket) {
+      throw new Error('Not connected to target')
+    }
+
+    const transactionId = this.incrementTransactionId()
+    // MBAP: [txid:U16][proto=0:U16][len:U16][unit=0:U8] then PDU.
+    // len counts the unit-id byte plus the PDU bytes that follow.
+    const request = Buffer.alloc(7 + pdu.length)
+    request.writeUInt16BE(transactionId, 0)
+    request.writeUInt16BE(0x0000, 2)
+    request.writeUInt16BE(1 + pdu.length, 4)
+    request.writeUInt8(0x00, 6)
+    Buffer.from(pdu).copy(request as unknown as Uint8Array, 7)
+
+    const data = await this.sendTcpRequest(request)
+
+    if (data.length < 8) {
+      throw new Error(`Invalid response: too short (${data.length} bytes)`)
+    }
+    if (data.readUInt16BE(0) !== transactionId) {
+      throw new Error('Transaction ID mismatch')
+    }
+
+    // Strip the 7-byte MBAP header — the remainder is the response PDU
+    // ([FC][status]... ) the modbus-pdu.ts parsers expect at offset 0.
+    return Uint8Array.from(data.subarray(7))
+  }
 }

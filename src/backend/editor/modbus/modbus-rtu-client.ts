@@ -451,4 +451,24 @@ export class ModbusRtuClient {
       return { success: false, error: getErrorMessage(error) }
     }
   }
+
+  /**
+   * Send a pre-built debug PDU (built by `modbus-pdu.ts`) framed as an RTU
+   * request and resolve the raw response PDU bytes (function code +
+   * payload).  Generic seam for run-control (FC 0x46-0x4B); as with the
+   * other debug methods here the response carries a 7-byte header (the
+   * simulator answers MBAP-framed), so the PDU begins at offset 7.
+   * Throws on transport failure.
+   */
+  async sendDebugCommand(pdu: Uint8Array): Promise<Uint8Array> {
+    if (pdu.length < 1) {
+      throw new Error('Empty debug PDU')
+    }
+    const request = this.assembleRequest(pdu[0], Buffer.from(pdu.subarray(1)))
+    const response = await this.sendRequest(request)
+    if (response.length < 8) {
+      throw new Error(`Invalid response: too short (${response.length} bytes)`)
+    }
+    return Uint8Array.from(response.subarray(7))
+  }
 }

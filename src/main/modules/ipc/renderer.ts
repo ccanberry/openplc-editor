@@ -438,6 +438,22 @@ const rendererProcessBridge = {
 
   debuggerDisconnect: (): Promise<{ success: boolean }> => ipcRenderer.invoke('debugger:disconnect'),
 
+  // -------- Online-debugger run control (FC 0x46-0x4B) --------
+  // `ids` are project-global STruC++ checkpoint ids from checkpoint-map.json.
+  debuggerSetBreakpoints: (ids: number[]): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:set-breakpoints', ids),
+
+  // op: 'clear' (all breakpoints) | 'continue' | 'pause' | 'step'.
+  debuggerRunControl: (op: 'clear' | 'continue' | 'pause' | 'step'): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:run-control', op),
+
+  debuggerGetStopInfo: (): Promise<{
+    success: boolean
+    stopped?: boolean
+    checkpointId?: number
+    error?: string
+  }> => ipcRenderer.invoke('debugger:stopinfo'),
+
   // ===================== RUNTIME API METHODS =====================
   runtimeGetUsersInfo: (ipAddress: string): Promise<{ hasUsers: boolean; runtimeVersion?: string; error?: string }> =>
     ipcRenderer.invoke('runtime:get-users-info', ipAddress),

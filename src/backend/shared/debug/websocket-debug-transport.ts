@@ -146,6 +146,21 @@ export class WebSocketDebugTransport implements DebugTransport {
   }
 
   /**
+   * Send a pre-built debug PDU and resolve the raw response PDU bytes
+   * (function code + payload, transport framing already stripped by the
+   * Socket.IO `debug_response` envelope).  This is the generic seam the
+   * run-control operations (FC 0x46-0x4B) route through — the caller
+   * builds the request with `modbus-pdu.ts` and parses the reply the same
+   * way, so no wire layout is duplicated here.  Errors reject (the IPC
+   * handler wraps each call in try/catch).
+   */
+  async sendDebugCommand(pdu: Uint8Array): Promise<Uint8Array> {
+    if (!this.socket) throw new Error('Not connected to target')
+
+    return this.sendCommand(pdu, (bytes) => bytes, 'reject')
+  }
+
+  /**
    * Send a Modbus PDU over the `debug_command` event and parse the
    * matching `debug_response`.  `errorMode` controls whether a
    * runtime / parser error rejects the promise (used by
@@ -167,6 +182,11 @@ export class WebSocketDebugTransport implements DebugTransport {
     parse: (bytes: Uint8Array) => T,
     errorMode: 'reject',
   ): Promise<T>
+  private sendCommand(
+    pdu: Uint8Array,
+    parse: (bytes: Uint8Array) => Uint8Array,
+    errorMode: 'reject',
+  ): Promise<Uint8Array>
   private sendCommand<T>(
     pdu: Uint8Array,
     parse: (bytes: Uint8Array) => T,

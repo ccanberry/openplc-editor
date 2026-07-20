@@ -35,6 +35,9 @@ beforeEach(() => {
       success: true,
       content: 'debug_vars[] = { ... }',
     }),
+    debuggerSetBreakpoints: jest.fn().mockResolvedValue({ success: true }),
+    debuggerRunControl: jest.fn().mockResolvedValue({ success: true }),
+    debuggerGetStopInfo: jest.fn().mockResolvedValue({ success: true, stopped: true, checkpointId: 7 }),
   } as unknown as typeof window.bridge
 
   adapter = createEditorDebuggerAdapter()
@@ -316,6 +319,58 @@ describe('readDebugFile', () => {
     const result = await adapter.readDebugFile('/path', 'board')
 
     expect(result).toEqual({ success: false, error: 'Read error' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// setBreakpoints / runControl / getStopInfo (run control, FC 0x46-0x4B)
+// ---------------------------------------------------------------------------
+
+describe('setBreakpoints', () => {
+  it('delegates the checkpoint id set to the bridge', async () => {
+    const result = await adapter.setBreakpoints([0, 5, 258])
+
+    expect(window.bridge.debuggerSetBreakpoints).toHaveBeenCalledWith([0, 5, 258])
+    expect(result).toEqual({ success: true })
+  })
+
+  it('catches bridge errors', async () => {
+    ;(window.bridge.debuggerSetBreakpoints as jest.Mock).mockRejectedValue(new Error('IPC down'))
+    const result = await adapter.setBreakpoints([1])
+
+    expect(result).toEqual({ success: false, error: 'IPC down' })
+  })
+})
+
+describe('runControl', () => {
+  it.each(['clear', 'continue', 'pause', 'step'] as const)('delegates the %s op to the bridge', async (op) => {
+    const result = await adapter.runControl(op)
+
+    expect(window.bridge.debuggerRunControl).toHaveBeenCalledWith(op)
+    expect(result).toEqual({ success: true })
+  })
+
+  it('catches bridge errors', async () => {
+    ;(window.bridge.debuggerRunControl as jest.Mock).mockRejectedValue(new Error('no link'))
+    const result = await adapter.runControl('continue')
+
+    expect(result).toEqual({ success: false, error: 'no link' })
+  })
+})
+
+describe('getStopInfo', () => {
+  it('returns the parsed halt state from the bridge', async () => {
+    const result = await adapter.getStopInfo()
+
+    expect(window.bridge.debuggerGetStopInfo).toHaveBeenCalled()
+    expect(result).toEqual({ success: true, stopped: true, checkpointId: 7 })
+  })
+
+  it('catches bridge errors', async () => {
+    ;(window.bridge.debuggerGetStopInfo as jest.Mock).mockRejectedValue(new Error('timeout'))
+    const result = await adapter.getStopInfo()
+
+    expect(result).toEqual({ success: false, error: 'timeout' })
   })
 })
 

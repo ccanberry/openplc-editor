@@ -11,7 +11,7 @@
  */
 
 import { getErrorMessage } from '../../../frontend/utils/get-error-message'
-import type { DebuggerPort } from '../../shared/ports/debugger-port'
+import type { DebuggerPort, DebugRunControlOp, DebugStopInfo } from '../../shared/ports/debugger-port'
 import type {
   DebugConnectionConfig,
   DebugSetResult,
@@ -89,6 +89,30 @@ export function createEditorDebuggerAdapter(): DebuggerPort {
     ): Promise<{ success: boolean; content?: string; error?: string }> {
       try {
         return await window.bridge.readDebugFile(projectPath, boardTarget)
+      } catch (err) {
+        return { success: false, error: getErrorMessage(err) }
+      }
+    },
+
+    async setBreakpoints(ids: number[]): Promise<{ success: boolean; error?: string }> {
+      try {
+        return await window.bridge.debuggerSetBreakpoints(ids)
+      } catch (err) {
+        return { success: false, error: getErrorMessage(err) }
+      }
+    },
+
+    async runControl(op: DebugRunControlOp): Promise<{ success: boolean; error?: string }> {
+      try {
+        return await window.bridge.debuggerRunControl(op)
+      } catch (err) {
+        return { success: false, error: getErrorMessage(err) }
+      }
+    },
+
+    async getStopInfo(): Promise<DebugStopInfo> {
+      try {
+        return await window.bridge.debuggerGetStopInfo()
       } catch (err) {
         return { success: false, error: getErrorMessage(err) }
       }

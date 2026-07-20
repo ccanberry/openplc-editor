@@ -43,7 +43,14 @@ import { ModbusRtuClient } from '../../../backend/editor/modbus/modbus-rtu-clien
 import { PackageManagerModule } from '../../../backend/editor/package-manager'
 import { logger } from '../../../backend/editor/services'
 import { getOpenProjectPath, getProjectPath } from '../../../backend/editor/utils'
+import {
+  buildRunControlRequest,
+  buildSetBreakpointsRequest,
+  parseRunControlResponse,
+  parseStopInfoResponse,
+} from '../../../backend/shared/debug/modbus-pdu'
 import { WebSocketDebugTransport } from '../../../backend/shared/debug/websocket-debug-transport'
+import { ModbusFunctionCode } from '../../../backend/shared/simulator/types'
 import { SimulatorModule } from '../../../backend/shared/simulator/simulator-module'
 import { VirtualSerialPort } from '../../../backend/shared/simulator/virtual-serial-port'
 
@@ -904,6 +911,9 @@ class MainProcessBridge implements MainIpcModule {
     this.registerHandle('debugger:set-variable', this.handleDebuggerSetVariable)
     this.registerHandle('debugger:connect', this.handleDebuggerConnect)
     this.registerHandle('debugger:disconnect', this.handleDebuggerDisconnect)
+    this.registerHandle('debugger:set-breakpoints', this.handleDebuggerSetBreakpoints)
+    this.registerHandle('debugger:run-control', this.handleDebuggerRunControl)
+    this.registerHandle('debugger:stopinfo', this.handleDebuggerGetStopInfo)
 
     // ===================== RUNTIME API =====================
     this.registerHandle('runtime:get-users-info', this.handleRuntimeGetUsersInfo)
@@ -1918,6 +1928,73 @@ class MainProcessBridge implements MainIpcModule {
     this.debuggerJwtToken = null
     this.debuggerReconnecting = false
     return Promise.resolve({ success: true })
+  }
+
+  // -------- Online-debugger run control (FC 0x46-0x4B) --------
+  //
+  // These operations reuse the *same* debug channel as watch/force — the
+  // PDU is built + parsed by backend/shared/debug/modbus-pdu.ts and carried
+  // over whichever transport this session connected with (WebSocket to a
+  // full runtime, or Modbus TCP/RTU).  Unlike getVariablesList they do NOT
+  // auto-reconnect: run control is explicit user action / stop-info polling,
+  // so a dropped link surfaces as a soft failure the UI can react to.
+
+  private sendDebugPdu = async (pdu: Uint8Array): Promise<Uint8Array> => {
+    if (this.debuggerConnectionType === 'websocket') {
+      if (!this.debuggerWebSocketClient) throw new Error('Debugger not connected')
+      return this.debuggerWebSocketClient.sendDebugCommand(pdu)
+    }
+    if (!this.debuggerModbusClient) throw new Error('Debugger not connected')
+    return this.debuggerModbusClient.sendDebugCommand(pdu)
+  }
+
+  handleDebuggerSetBreakpoints = async (
+    _event: IpcMainInvokeEvent,
+    ids: number[],
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (this.debuggerConnectionType === null) {
+      return { success: false, error: 'Debugger not connected' }
+    }
+    try {
+      return parseRunControlResponse(await this.sendDebugPdu(buildSetBreakpointsRequest(ids)))
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleDebuggerRunControl = async (
+    _event: IpcMainInvokeEvent,
+    op: 'clear' | 'continue' | 'pause' | 'step',
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (this.debuggerConnectionType === null) {
+      return { success: false, error: 'Debugger not connected' }
+    }
+    const fcByOp: Record<'clear' | 'continue' | 'pause' | 'step', ModbusFunctionCode> = {
+      clear: ModbusFunctionCode.DEBUG_CLEAR_BREAKPOINTS,
+      continue: ModbusFunctionCode.DEBUG_CONTINUE,
+      pause: ModbusFunctionCode.DEBUG_PAUSE,
+      step: ModbusFunctionCode.DEBUG_STEP,
+    }
+    try {
+      return parseRunControlResponse(await this.sendDebugPdu(buildRunControlRequest(fcByOp[op])))
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleDebuggerGetStopInfo = async (
+    _event: IpcMainInvokeEvent,
+  ): Promise<{ success: boolean; stopped?: boolean; checkpointId?: number; error?: string }> => {
+    if (this.debuggerConnectionType === null) {
+      return { success: false, error: 'Debugger not connected' }
+    }
+    try {
+      const parsed = parseStopInfoResponse(await this.sendDebugPdu(buildRunControlRequest(ModbusFunctionCode.DEBUG_STOPINFO)))
+      if (!parsed.success) return { success: false, error: parsed.error }
+      return { success: true, stopped: parsed.stopped, checkpointId: parsed.checkpointId }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
   }
 
   handleDebuggerSetVariable = async (
