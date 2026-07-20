@@ -4,7 +4,8 @@
     "repository": "Autonomy-Logic/xml2st"
   },
   "strucpp": {
-    "version": "v0.5.13",
-    "repository": "Autonomy-Logic/STruCpp"
+    "version": "v0.6.0",
+    "repository": "Autonomy-Logic/STruCpp",
+    "localTarball": "vendor/strucpp-0.6.0-robotek-debug.tgz"
   }
 }

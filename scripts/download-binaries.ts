@@ -18,6 +18,15 @@ import path from 'path'
 interface ToolEntry {
   version: string
   repository: string
+  /**
+   * Optional path (relative to the repo root) to a local `.tgz` to install
+   * instead of fetching the GitHub release.  Used to pin a fork build that
+   * isn't published as a release — currently the Robotek STruC++ debug fork
+   * (`debugCheckpoints`).  Rebuild + repack from the fork and drop the tgz in
+   * `vendor/` when it changes; `version` must still match the tarball's
+   * `package.json` version so `needsStrucpp` recognises it as installed.
+   */
+  localTarball?: string
 }
 
 interface BinaryVersions {
@@ -259,6 +268,22 @@ async function downloadXml2st(
 async function downloadStrucpp(tool: ToolEntry): Promise<void> {
   // The npm tarball is platform-independent (pure TypeScript + C++ headers)
   const version = tool.version.replace(/^v/, '')
+
+  // Local-tarball override: a fork build that isn't published as a GitHub
+  // release (the Robotek debug fork).  Install the vendored tgz directly and
+  // skip the network entirely.  `needsStrucpp` still gates re-installs on the
+  // package.json version, so this runs at most once per version bump.
+  if (tool.localTarball) {
+    const localPath = path.resolve(ROOT_DIR, tool.localTarball)
+    if (!fs.existsSync(localPath)) {
+      throw new Error(`strucpp localTarball not found: ${localPath} (referenced by binary-versions.json)`)
+    }
+    console.log(`  Installing strucpp ${tool.version} from local tarball ${tool.localTarball}...`)
+    execSync(`npm install "${localPath}" --no-save`, { cwd: ROOT_DIR, stdio: 'pipe' })
+    console.log(`  strucpp ${tool.version} installed (local fork).`)
+    return
+  }
+
   const url = `https://github.com/${tool.repository}/releases/download/${tool.version}/strucpp-${version}.tgz`
 
   console.log(`  Downloading strucpp ${tool.version}...`)

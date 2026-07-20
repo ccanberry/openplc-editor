@@ -35,6 +35,7 @@
  */
 import type * as strucpp from 'strucpp'
 
+import { resolveCheckpointsToPouLocal } from '../utils/PLC/resolve-checkpoints'
 import type { KnownPou } from '../utils/PLC/split-program-st'
 import { splitProgramSt } from '../utils/PLC/split-program-st'
 import { enrichErrorWithPouContext, formatErrorWithPouContext } from './program-build-helpers'
@@ -63,6 +64,11 @@ export interface ProgramBuildPipelineOptions {
   /** True when the project carries any C/C++ POUs.  Causes every
    *  generated TU to `#include "c_blocks.h"`. */
   hasCBlocks: boolean
+  /** Online-debugger "debug deploy": emit a `::strucpp::debug::checkpoint`
+   *  before every statement (+ `debug_hook.cpp`) and a `checkpoint-map.json`
+   *  artefact resolved to POU-body-local coordinates.  Off for normal
+   *  builds — no instrumentation, byte-identical generated code. */
+  debugCheckpoints?: boolean
 }
 
 /** A single artefact the editor should persist (Electron) or pack
@@ -108,7 +114,7 @@ export interface ProgramBuildPipelineResult {
  * source.  Pure: no disk I/O, no `child_process.spawn`.
  */
 export function runProgramBuildPipeline(opts: ProgramBuildPipelineOptions): ProgramBuildPipelineResult {
-  const { source, md5, pous, libraries, missingLibraries, hasCBlocks } = opts
+  const { source, md5, pous, libraries, missingLibraries, hasCBlocks, debugCheckpoints } = opts
 
   // Pre-compile gate: every library the project enables must be
   // resolvable before strucpp runs.  Without this, the user gets a
@@ -186,6 +192,7 @@ export function runProgramBuildPipeline(opts: ProgramBuildPipelineOptions): Prog
     md5,
     pouIncludes,
     ...(additionalSources ? { additionalSources } : {}),
+    ...(debugCheckpoints ? { debugCheckpoints: true } : {}),
   })
 
   // Source map covers every file we fed strucpp, so formatDiagnostic
@@ -271,6 +278,16 @@ export function runProgramBuildPipeline(opts: ProgramBuildPipelineOptions): Prog
       content: JSON.stringify(result.debugMap, null, 2),
     })
     debugMapSummary = `Debug map: ${result.debugMap.leaves.length} leaves in ${result.debugMap.arrays.length} arrays`
+  }
+
+  // Online-debugger run control: resolve the fork's per-POU-file checkpoints
+  // to POU-body-local coordinates and emit checkpoint-map.json.  Requires the
+  // splitter to have run (per-POU files carry the file names the checkpoints
+  // reference); the monolithic fallback resolves to nothing, so run control
+  // stays inert there rather than pointing the gutter at wrong lines.
+  if (debugCheckpoints && result.checkpoints && result.checkpoints.length > 0) {
+    const resolved = resolveCheckpointsToPouLocal(result.checkpoints, split ? split.files : null)
+    files.push({ name: 'checkpoint-map.json', content: JSON.stringify(resolved, null, 2) })
   }
 
   return {

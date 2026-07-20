@@ -934,6 +934,13 @@ class CompilerModule {
        * message instead of strucpp's per-symbol cascade.
        */
       missingLibraries?: string[]
+      /**
+       * Online-debugger "debug deploy": instrument every statement with a
+       * checkpoint and emit `checkpoint-map.json`.  Set by `compileForDebugger`
+       * only — the normal `compileProgram` path leaves it off so production
+       * builds stay uninstrumented.
+       */
+      debugCheckpoints?: boolean
     },
   ): Promise<{ md5Hash: string; strucppFiles: Record<string, string> }> {
     const stFilePath = join(sourceTargetFolderPath, 'program.st')
@@ -961,6 +968,7 @@ class CompilerModule {
       libraries: options.libraries,
       missingLibraries: options.missingLibraries ?? [],
       hasCBlocks: options.hasCBlocks ?? false,
+      debugCheckpoints: options.debugCheckpoints ?? false,
     })
 
     if (result.splitterFallbackMessage) {
@@ -2949,7 +2957,9 @@ class CompilerModule {
             ...(compileError ? { compileError } : {}),
           })
         },
-        { hasCBlocks, pous: knownPous, libraries, missingLibraries },
+        // Debug build → instrument statements + emit checkpoint-map.json so
+        // the editor's breakpoint gutter and run control light up.
+        { hasCBlocks, pous: knownPous, libraries, missingLibraries, debugCheckpoints: true },
       )
     } catch (error) {
       _mainProcessPort.postMessage({
