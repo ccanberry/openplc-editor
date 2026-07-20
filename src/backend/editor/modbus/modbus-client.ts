@@ -360,7 +360,7 @@ export class ModbusTcpClient {
     }
 
     const transactionId = this.incrementTransactionId()
-    // MBAP: [txid:U16][proto=0:U16][len:U16][unit=0:U8] then PDU.
+    // MBAP: [txid: U16] [proto=0: U16] [len: U16] [unit=0: U8] then PDU.
     // len counts the unit-id byte plus the PDU bytes that follow.
     const request = Buffer.alloc(7 + pdu.length)
     request.writeUInt16BE(transactionId, 0)

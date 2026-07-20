@@ -146,11 +146,11 @@ export function buildSetVariableRequest(index: number, force: boolean, valueBuff
 // Online-debugger run control (FC 0x46-0x4B).
 //
 // Wire layouts (must match openplc-runtime debug_handler.c exactly):
-//   set-breakpoints request: [FC=0x46][count:U16BE][id0:U32BE][id1:U32BE]...
+//   set-breakpoints request: [FC=0x46] [count: U16BE] [id0: U32BE] [id1: U32BE] ...
 //   clear/continue/pause/step request: [FC]  (bare 1-byte frame)
 //   stopinfo request:  [FC=0x4B]
 //   control response (respond_short): [FC][status]
-//   stopinfo response: [FC=0x4B][status][stopped:U8][checkpointId:U32BE]
+//   stopinfo response: [FC=0x4B] [status] [stopped: U8] [checkpointId: U32BE]
 //
 // `ids` are project-global STruC++ checkpoint ids from `checkpoint-map.json`.
 // ---------------------------------------------------------------------------

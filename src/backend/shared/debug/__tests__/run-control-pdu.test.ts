@@ -14,7 +14,7 @@ import {
 } from '../modbus-pdu'
 
 describe('buildSetBreakpointsRequest', () => {
-  it('emits [FC][count:U16BE][id:U32BE...] matching the runtime', () => {
+  it('emits [FC] [count: U16BE] [id: U32BE ...] matching the runtime', () => {
     const buf = buildSetBreakpointsRequest([5, 258])
     expect(Array.from(buf)).toEqual([
       0x46, // FC
@@ -49,7 +49,7 @@ describe('buildRunControlRequest', () => {
 })
 
 describe('parseStopInfoResponse', () => {
-  it('parses [FC][status][stopped][id:U32BE] — stopped', () => {
+  it('parses [FC] [status] [stopped] [id: U32BE] — stopped', () => {
     const r = parseStopInfoResponse(new Uint8Array([0x4b, ModbusDebugResponse.SUCCESS, 0x01, 0x00, 0x00, 0x00, 0x07]))
     expect(r).toEqual({ success: true, stopped: true, checkpointId: 7 })
   })
