@@ -308,6 +308,59 @@ describe('createEditorCompilerAdapter', () => {
       expect(progressEvents).toEqual([{ stage: 'error', message: 'Board not found', level: 'error' }])
     })
 
+    it("authoritative buildOutcome 'success' wins over benign error-level noise (ssh host-key notices)", async () => {
+      // The arm9 AUTO_DEPLOY relays "Warning: Permanently added … to the list
+      // of known hosts" on stderr; the runtime tags it [ERROR].  That must not
+      // fail the build once the pipeline posts its real verdict — this is what
+      // stopped cancelling the debugger's compile-and-deploy.
+      const progressEvents: CompileProgressEvent[] = []
+      const promise = adapter.compileProgram(
+        { projectData: mockProjectData, boardTarget: 'Arduino Mega', projectPath: '/path' },
+        (event) => progressEvents.push(event),
+      )
+
+      await flushMicrotasks()
+      compileCallback!({ message: 'Warning: Permanently added ... to the list of known hosts.', logLevel: 'error' })
+      compileCallback!({ buildOutcome: 'success' })
+      compileCallback!({ closePort: true })
+
+      const result = await promise
+
+      expect(result).toEqual({ success: true, message: 'Compilation complete', hexPath: undefined })
+      expect(progressEvents.some((e) => e.stage === 'done' && e.message === 'Compilation complete')).toBe(true)
+    })
+
+    it("authoritative buildOutcome 'failure' fails the build even without an error line", async () => {
+      const promise = adapter.compileProgram(
+        { projectData: mockProjectData, boardTarget: 'Arduino Mega', projectPath: '/path' },
+        () => {},
+      )
+
+      await flushMicrotasks()
+      compileCallback!({ buildOutcome: 'failure' })
+      compileCallback!({ closePort: true })
+
+      const result = await promise
+
+      expect(result).toEqual({ success: false, error: 'Compilation failed' })
+    })
+
+    it("authoritative buildOutcome 'failure' preserves the streamed error message", async () => {
+      const promise = adapter.compileProgram(
+        { projectData: mockProjectData, boardTarget: 'Arduino Mega', projectPath: '/path' },
+        () => {},
+      )
+
+      await flushMicrotasks()
+      compileCallback!({ message: 'g++: fatal error', logLevel: 'error' })
+      compileCallback!({ buildOutcome: 'failure' })
+      compileCallback!({ closePort: true })
+
+      const result = await promise
+
+      expect(result).toEqual({ success: false, error: 'g++: fatal error' })
+    })
+
     it('captures simulatorFirmwarePath as hexPath', async () => {
       const promise = adapter.compileProgram(
         {

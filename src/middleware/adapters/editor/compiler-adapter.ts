@@ -205,6 +205,15 @@ export function createEditorCompilerAdapter(): CompilerPort {
         let lastError = ''
         let hexPath: string | undefined
         let settled = false
+        // Authoritative verdict posted by the compiler-module just before it
+        // closes the port (v4 / v3 / Arduino-direct paths).  Preferred over the
+        // `hasError` heuristic so benign error-level noise — e.g. the ssh/scp
+        // host-key notices the arm9 AUTO_DEPLOY relays, which the runtime tags
+        // `[ERROR]` — doesn't get read as a failed build (which was cancelling
+        // the debugger's compile-and-deploy even though the deploy succeeded).
+        // Undefined on transports that don't post it (simulator, etc.) → we
+        // fall back to `!hasError`, preserving prior behaviour.
+        let authoritativeSuccess: boolean | undefined
 
         window.bridge.runCompileProgram(
           [
@@ -237,16 +246,24 @@ export function createEditorCompilerAdapter(): CompilerPort {
               onProgress({ stage: 'done', message: 'Simulator firmware ready', firmwarePath: hexPath })
             }
 
+            // Terminal verdict from the backend pipeline (see the comment on
+            // `authoritativeSuccess`).  Arrives on its own message ahead of the
+            // port close.
+            if (data.buildOutcome === 'success' || data.buildOutcome === 'failure') {
+              authoritativeSuccess = data.buildOutcome === 'success'
+            }
+
             if (data.closePort) {
               if (settled) return
               settled = true
-              if (!hasError) {
+              const succeeded = authoritativeSuccess ?? !hasError
+              if (succeeded) {
                 onProgress({ stage: 'done', message: 'Compilation complete' })
               }
               resolve(
-                hasError
-                  ? { success: false, error: lastError }
-                  : { success: true, message: 'Compilation complete', hexPath },
+                succeeded
+                  ? { success: true, message: 'Compilation complete', hexPath }
+                  : { success: false, error: lastError || 'Compilation failed' },
               )
               return
             }

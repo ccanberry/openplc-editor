@@ -2822,6 +2822,18 @@ class CompilerModule {
       }
     }
 
+    // Authoritative build verdict for the renderer.  The compile/upload stream
+    // can carry benign error-level noise: the arm9 AUTO_DEPLOY step relays
+    // ssh/scp host-key notices ("Warning: Permanently added … to the list of
+    // known hosts") which the runtime tags `[ERROR]` only because they land on
+    // the deploy subprocess's stderr.  Those must not read as a failed build —
+    // `result.success` (the same flag that just gated the debug-map writes) is
+    // the real outcome.  The adapter prefers this over its "did any error-level
+    // line appear" heuristic, so the debugger's compile-and-deploy gate stops
+    // cancelling on cosmetic stderr.  Normal Build & Upload callers `void` the
+    // result, so this is a no-op for them.
+    _mainProcessPort.postMessage({ buildOutcome: result.success ? 'success' : 'failure' })
+
     // Runtime v4 / v3 / Arduino-direct paths all converge here.  If
     // an upload happened (or was skipped on purpose), trail the
     // separator and let the renderer pulse-check the deferred close.
