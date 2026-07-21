@@ -1,14 +1,16 @@
-import { Files, GitBranch } from 'lucide-react'
-import { useCallback } from 'react'
+import { CircleAlert, Files, GitBranch } from 'lucide-react'
+import { useCallback, useState } from 'react'
 
 import { useNavigation } from '../../../../middleware/shared/providers'
 import { useIsNinetiesTheme } from '../../../hooks/use-nineties-theme'
 import { useOpenPLCStore } from '../../../store'
 import { cn } from '../../../utils/cn'
+import { ActivityBarButton } from '../../_atoms/buttons/activity-bar'
 import { RetroExplorer, RetroSourceControl } from '../../_atoms/retro-icons'
 import { DividerActivityBar } from '../../_atoms/workspace-activity-bar/divider'
 import { ExitButton } from '../../_molecules/workspace-activity-bar/default/exit'
 import { TooltipSidebarWrapperButton } from '../../_molecules/workspace-activity-bar/tooltip-button'
+import { VersionInfoModal } from '../../_molecules/version-info-modal'
 import { DefaultWorkspaceActivityBar } from './default'
 import { FBDToolbox } from './fbd-toolbox'
 import { LadderToolbox } from './ladder-toolbox'
@@ -38,6 +40,7 @@ export const WorkspaceActivityBar = ({ defaultActivityBar, explorer, sourceContr
   const isFBDEditor = editor?.type === 'plc-graphical' && editor?.meta.language === 'fbd'
   const isLadderEditor = editor?.type === 'plc-graphical' && editor?.meta.language === 'ld'
   const isNineties = useIsNinetiesTheme()
+  const [infoOpen, setInfoOpen] = useState(false)
 
   const handleExitApplication = () => {
     const { pendingConfirmation } = closeProject()
@@ -108,11 +111,17 @@ export const WorkspaceActivityBar = ({ defaultActivityBar, explorer, sourceContr
           </>
         )}
       </div>
-      <div className='flex h-7 w-full shrink-0 flex-col gap-6 pb-10'>
+      <div className='flex w-full shrink-0 flex-col items-center gap-5 pb-10'>
+        <TooltipSidebarWrapperButton tooltipContent='About & Changes'>
+          <ActivityBarButton aria-label='About and changes' onClick={() => setInfoOpen(true)}>
+            <CircleAlert className='h-4 w-4 text-[#B4D0FE]' />
+          </ActivityBarButton>
+        </TooltipSidebarWrapperButton>
         <TooltipSidebarWrapperButton tooltipContent='Exit'>
           <ExitButton onClick={handleExitApplication} />
         </TooltipSidebarWrapperButton>
       </div>
+      <VersionInfoModal open={infoOpen} onClose={() => setInfoOpen(false)} />
     </>
   )
 }

@@ -180,17 +180,11 @@
    ],
    "channels": [
     {
-     "label": "WebSocket",
-     "channel": "websocket",
+     "label": "Modbus TCP (board :502)",
+     "channel": "tcp",
      "enabledWhen": true,
      "params": {
-      "ipAddress": {
-       "$ref": "configuration.runtimeIpAddress"
-      },
-      "jwtToken": {
-       "$ref": "runtimeConnection.jwtToken",
-       "required": "JWT token missing. Reconnect to the runtime."
-      }
+      "ipAddress": "192.168.0.10"
      }
     }
    ]
