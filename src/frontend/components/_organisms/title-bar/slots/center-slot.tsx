@@ -1,3 +1,4 @@
+import { ROBOTEK_TITLE } from '../../../../data/robotek-version'
 import { useCapabilities } from '../../../../../middleware/shared/providers'
 import { OpenPLCIcon } from '../../../../assets/icons/oplc'
 import { useOpenPLCStore } from '../../../../store'
@@ -16,10 +17,10 @@ const TitleBarCenterSlot = () => {
       {caps.isNativeApplication ? (
         <>
           <OpenPLCIcon />
-          <span className='font-caption text-xs font-normal'>OpenPLC Editor</span>
+          <span className='font-caption text-xs font-normal'>{ROBOTEK_TITLE}</span>
         </>
       ) : (
-        path === '' && <span className='font-caption text-xs font-normal'>OpenPLC Editor</span>
+        path === '' && <span className='font-caption text-xs font-normal'>{ROBOTEK_TITLE}</span>
       )}
     </div>
   )

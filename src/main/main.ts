@@ -20,6 +20,7 @@ import { MainIpcModuleConstructor } from '../backend/editor/contracts/types/modu
 import { HardwareModule } from '../backend/editor/hardware'
 import { logger, PouService, ProjectService, UserService } from '../backend/editor/services'
 import { resolveHtmlPath } from '../backend/editor/utils'
+import { ROBOTEK_TITLE } from '../frontend/data/robotek-version'
 import { getErrorMessage } from '../frontend/utils/get-error-message'
 import MenuBuilder from './menu'
 import MainProcessBridge from './modules/ipc/main'
@@ -162,12 +163,20 @@ const createMainWindow = async () => {
     minWidth: 1124,
     minHeight: 628,
     show: false,
+    title: ROBOTEK_TITLE,
     icon: getAssetPath('icon.png'),
     ...titlebarStyles,
     webPreferences: {
       sandbox: true,
       preload: app.isPackaged ? join(__dirname, 'preload.js') : join(__dirname, '../../configs/dll/preload.js'),
     },
+  })
+
+  // Keep the Robotek version as the window/taskbar title — otherwise the loaded
+  // page's <title> would overwrite it.
+  mainWindow.on('page-title-updated', (event) => {
+    event.preventDefault()
+    mainWindow?.setTitle(ROBOTEK_TITLE)
   })
 
   // Load the Url or index.html file;
