@@ -193,7 +193,7 @@
    "CPU": "ARM9-class TI Sitara (armhf, PREEMPT_RT 4.19)",
    "OS": "Embedded Linux (Debian Buster era, glibc 2.28)",
    "I/O Bus": "RoboCard RS-485 (DIO88 / AIO22 CPLD cards)",
-   "CNC Link": "RoboCNC Modbus TCP (READ/WRITE_PARAM, M/UM codes)",
+   "CNC Link": "RoboCNC Modbus TCP (RCNC_CONNECT, READ/WRITE_PARAM, M/UM codes, DRIVE_CONNECT_REQ)",
    "Deploy": "Cross-compiled via dev-box runtime (set-target.sh arm9 + AUTO_DEPLOY)",
    "Python Blocks": "Not available on target"
   }

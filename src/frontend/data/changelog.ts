@@ -12,6 +12,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.1.0',
+    date: '2026-07-27',
+    changes: [
+      'RoboCNC C-block POUs no longer declare their own EN input. EN is the implicit IEC 61131-3 enable pin: the compiler gates the block body on it and never assigns a declared EN member, so a body that re-tested `if (EN)` never ran and every READ_PARAM / WRITE_PARAM / MCODE / MRESET call was a silent no-op. Drop `EN : BOOL` from VAR_INPUT and the `if (EN)` wrapper — pass EN at the call site as before.',
+      'New RCNC_CONNECT block: opens and verifies the OpenPLC↔RoboCNC Modbus link on demand (connectCNC-style), so a program can establish the link from an init/connection POU instead of relying on the first parameter access to connect lazily.',
+      'RoboCNC drive (fieldbus) connection is now client-controlled: WRITE_PARAM_INT to DRIVE_CONNECT_REQ (holding 2057) connects on a 0→1 edge and disconnects on 1→0; DRIVE_CONNECTED (input 1015) reports the actual state. With system.json drive_connect:"manual" the drives connect only when the PLC program asks.',
+    ],
+  },
+  {
     version: '1.0.9',
     date: '2026-07-21',
     changes: [
