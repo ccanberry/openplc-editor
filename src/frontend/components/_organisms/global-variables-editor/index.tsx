@@ -1,7 +1,8 @@
 // import * as PrimitiveSwitch from '@radix-ui/react-switch'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ColumnFiltersState } from '@tanstack/react-table'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { PLCGlobalVariable } from '../../../../middleware/shared/ports/types'
+import type { PLCGlobalVariable, PLCVariable } from '../../../../middleware/shared/ports/types'
 import { CodeIcon } from '../../../assets/icons/interface/CodeIcon'
 import { MinusIcon } from '../../../assets/icons/interface/Minus'
 import { PlusIcon } from '../../../assets/icons/interface/Plus'
@@ -14,7 +15,7 @@ import { parseIecStringToVariables } from '../../../utils/generate-iec-string-to
 import { generateIecVariablesToString } from '../../../utils/generate-iec-variables-to-string'
 import TableActions from '../../_atoms/table-actions'
 import { toast } from '../../_features/[app]/toast/use-toast'
-import { GlobalVariablesTable } from '../../_molecules/global-variables-table'
+import { GlobalVariablesTable, groupOfVariable } from '../../_molecules/global-variables-table'
 import { VariablesCodeEditor } from '../variables-code-editor'
 
 const GlobalVariablesEditor = () => {
@@ -68,6 +69,31 @@ const GlobalVariablesEditor = () => {
     selectedRow: ROWS_NOT_SELECTED.toString(),
     description: '',
   })
+
+  /**
+   * Collapsible GVL groups. Rows are grouped by their `group` label
+   * (default "Global"); collapsing a group hides its rows through a
+   * column filter, which keeps row ids index-based on the flat data —
+   * selection / add / remove / rearrange semantics stay untouched.
+   */
+  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([])
+  const groupSummaries = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const variable of tableData) {
+      const group = groupOfVariable(variable)
+      counts.set(group, (counts.get(group) ?? 0) + 1)
+    }
+    return Array.from(counts, ([name, count]) => ({ name, count }))
+  }, [tableData])
+  const showGroupHeaders =
+    groupSummaries.length > 1 || (groupSummaries.length === 1 && groupSummaries[0].name !== 'Global')
+  const groupColumnFilters: ColumnFiltersState =
+    collapsedGroups.length > 0 ? [{ id: 'group', value: collapsedGroups }] : []
+  const toggleGroupCollapsed = (group: string) => {
+    setCollapsedGroups((current) =>
+      current.includes(group) ? current.filter((name) => name !== group) : [...current, group],
+    )
+  }
 
   const containerRef = useRef<HTMLDivElement>(null)
   const latestCodeRef = useRef(editorCode)
@@ -302,8 +328,24 @@ const GlobalVariablesEditor = () => {
 
       const newVariables = parseIecStringToVariables(editorCode)
 
+      // The IEC code view cannot express the publish flag or the GVL
+      // group label, so a code-view round-trip would silently wipe
+      // them. Preserve both by merging from the previous table state
+      // on variable NAME (same identity the auto-publish allocator and
+      // the debug-flags persistence use).
+      const previousByName = new Map(globalVariables.filter((v) => v.name).map((v) => [v.name, v]))
+      const mergedVariables = newVariables.map((variable): PLCVariable => {
+        const previous = previousByName.get(variable.name)
+        if (!previous) return variable
+        return {
+          ...variable,
+          ...(previous.publish !== undefined ? { publish: previous.publish } : {}),
+          ...(previous.group !== undefined ? { group: previous.group } : {}),
+        }
+      })
+
       const response = setGlobalVariables({
-        variables: newVariables,
+        variables: mergedVariables,
       })
 
       if (!response.ok) {
@@ -406,12 +448,37 @@ const GlobalVariablesEditor = () => {
           />
         </div>
       </div>
+      {editorVariables.display === 'table' && showGroupHeaders && (
+        <div aria-label='Global variable groups' className='flex flex-wrap items-center gap-2'>
+          {groupSummaries.map(({ name, count }) => {
+            const isCollapsed = collapsedGroups.includes(name)
+            return (
+              <button
+                key={name}
+                aria-label={`Toggle group ${name}`}
+                aria-expanded={!isCollapsed}
+                onClick={() => toggleGroupCollapsed(name)}
+                className={cn(
+                  'flex select-none items-center gap-1 rounded-md border border-neutral-300 px-2 py-0.5 font-caption text-xs',
+                  'text-neutral-850 hover:border-brand dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-brand',
+                  { 'opacity-60': isCollapsed },
+                )}
+              >
+                <span className={cn('inline-block transition-transform', { '-rotate-90': isCollapsed })}>&#9662;</span>
+                <span>{name}</span>
+                <span className='opacity-60'>({count})</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
       {editorVariables.display === 'table' && (
         <div aria-label='Variables editor table container' className='' style={{ scrollbarGutter: 'stable' }}>
           <GlobalVariablesTable
             tableData={tableData}
             selectedRow={parseInt(editorVariables.selectedRow)}
             handleRowClick={handleRowClick}
+            columnFilters={groupColumnFilters}
           />
         </div>
       )}

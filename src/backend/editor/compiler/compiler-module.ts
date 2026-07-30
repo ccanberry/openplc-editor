@@ -95,6 +95,7 @@ import { assertPathContained } from '@root/backend/editor/utils/path-containment
 import { getRuntimeHttpsOptions } from '@root/backend/editor/utils/runtime-https-config'
 import { isNewTranspilerEnabled } from '@root/backend/editor/utils/transpiler-mode'
 import { runCompilePipeline } from '@root/backend/shared/compile/pipeline'
+import { preparePublishedGlobals } from '@root/backend/shared/compile/steps/allocate-published-globals'
 import { mergeStrucppRuntimeIntoSkeleton } from '@root/backend/shared/compile/steps/merge-strucpp-runtime-into-skeleton'
 import { readHalsFile } from '@root/backend/shared/firmware/hals-loader'
 import type { DeviceConfiguration, DevicePin } from '@root/backend/shared/types/PLC/devices'
@@ -2861,7 +2862,27 @@ class CompilerModule {
 
     _mainProcessPort.postMessage({ logLevel: 'info', message: 'Starting debug compilation process...' })
 
-    const [projectPath, boardTarget, projectData] = args as [string, string, PLCProjectData]
+    const [projectPath, boardTarget, rawProjectData] = args as [string, string, PLCProjectData]
+
+    // Auto-publish parity: the debug compile must produce the SAME
+    // program.st (and therefore the same MD5) as the deployed build,
+    // or the debugger's MD5 verification fails on any project with
+    // published globals.  Run the same in-memory transformation the
+    // shared pipeline's Step 0a applies (direct `AT %QWn` locations +
+    // synthetic glue POUs for 32-bit pairs) before transpiling.
+    const publishPrep = preparePublishedGlobals(rawProjectData as ProjectDataWithCppPous)
+    for (const warning of publishPrep.warnings) {
+      _mainProcessPort.postMessage({ logLevel: 'warning', message: `Auto-publish: ${warning}` })
+    }
+    if (publishPrep.errors.length > 0) {
+      for (const message of publishPrep.errors) {
+        _mainProcessPort.postMessage({ logLevel: 'error', message: `Auto-publish: ${message}` })
+      }
+      _mainProcessPort.postMessage({ logLevel: 'error', message: 'Stopping debug compilation process.' })
+      _mainProcessPort.close()
+      return
+    }
+    const projectData = publishPrep.projectData as PLCProjectData
 
     const debugResolver = await this.#createBoardInfoResolver()
     const { boardRuntime } = debugResolver.resolve(boardTarget)

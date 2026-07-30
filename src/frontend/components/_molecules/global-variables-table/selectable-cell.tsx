@@ -7,6 +7,7 @@ import { baseTypeEnum } from '../../../../middleware/shared/ports'
 import type { PLCGlobalVariable, PLCVariable } from '../../../../middleware/shared/ports/types'
 import { ArrowIcon } from '../../../assets/icons/interface/Arrow'
 import { DebuggerIcon } from '../../../assets/icons/interface/Debugger'
+import { TransferIcon } from '../../../assets/icons/interface/Transfer'
 import { useOpenPLCStore } from '../../../store'
 import { TypeChangeValidationResult, validateTypeChange } from '../../../store/slices/project/validation/type-change'
 import { cn } from '../../../utils/cn'
@@ -440,4 +441,36 @@ const SelectableDebugCell = ({ getValue, row: { index }, column: { id }, table }
   )
 }
 
-export { SelectableClassCell, SelectableDebugCell, SelectableTypeCell }
+/**
+ * Publish toggle — same interaction pattern as `SelectableDebugCell`.
+ * A flagged global gets a Modbus `%QW` register assigned automatically
+ * at compile time and appears in the generated `conf/hmi_map.json`
+ * symbol file so HMIs bind by name (see docs/AUTO_PUBLISH.md).
+ */
+const SelectablePublishCell = ({ getValue, row: { index }, column: { id }, table }: ISelectableCellProps) => {
+  const initialValue = getValue<boolean | undefined>() ?? false
+
+  const [cellValue, setCellValue] = useState(initialValue)
+
+  const onClick = () => {
+    const newValue = !cellValue
+    setCellValue(newValue)
+    table.options.meta?.updateData(index, id, newValue)
+  }
+
+  useEffect(() => {
+    setCellValue(initialValue)
+  }, [initialValue])
+
+  return (
+    <button
+      className='flex h-full w-full cursor-pointer items-center justify-center'
+      title={cellValue ? 'Published to the HMI register window' : 'Not published'}
+      onClick={onClick}
+    >
+      <TransferIcon className={cn({ 'opacity-30 grayscale': !cellValue })} />
+    </button>
+  )
+}
+
+export { SelectableClassCell, SelectableDebugCell, SelectablePublishCell, SelectableTypeCell }

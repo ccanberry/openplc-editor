@@ -152,6 +152,19 @@ const PLCVariableSchema = z.object({
   initialValue: z.string().or(z.null()).optional(),
   documentation: z.string(),
   debug: z.boolean().optional(),
+  /**
+   * Auto-publish flag (global variables only). A flagged global gets a
+   * Modbus `%QW` holding register assigned automatically at compile
+   * time and appears in the generated `conf/hmi_map.json` symbol file
+   * so HMIs bind by name. See `utils/hmi-publish/` + docs/AUTO_PUBLISH.md.
+   */
+  publish: z.boolean().optional(),
+  /**
+   * GVL group label (global variables only). Purely a per-variable
+   * grouping tag — storage stays one flat array, so legacy projects
+   * load unchanged (absent = group "Global").
+   */
+  group: z.string().optional(),
 })
 
 type PLCVariable = z.infer<typeof PLCVariableSchema>
@@ -761,6 +774,22 @@ const PLCDebugVariablesSchema = z
 type PLCDebugVariables = z.infer<typeof PLCDebugVariablesSchema>
 
 /**
+ * Persisted auto-publish register assignments (`name → %QW<n>`, LOW
+ * word for 32-bit pairs). Written by the save flow, fed back into the
+ * allocator as pinned registers on the next build — this is what keeps
+ * a published variable's register stable across builds even when other
+ * published variables are deleted. Absent for projects with no
+ * published globals (legacy projects stay byte-identical on disk).
+ */
+const PLCHmiPublishSchema = z
+  .object({
+    assignments: z.record(z.string(), z.string()),
+  })
+  .optional()
+
+type PLCHmiPublish = z.infer<typeof PLCHmiPublishSchema>
+
+/**
  * One row of the project's per-project library enablement.  Records
  * the subset of the system-wide library pool the project pulls into
  * its compile + UI surfaces.
@@ -807,6 +836,7 @@ const PLCProjectDataSchema = z.object({
    *  `.st`/`.il`/etc. files).  Optional / undefined for PLC projects. */
   libraryManifest: z.string().optional(),
   debugVariables: PLCDebugVariablesSchema,
+  hmiPublish: PLCHmiPublishSchema,
   deletedPous: z
     .array(
       z.object({
@@ -886,6 +916,7 @@ export {
   PLCFunctionBlockSchema,
   PLCFunctionSchema,
   PLCGlobalVariableSchema,
+  PLCHmiPublishSchema,
   PLCInstanceSchema,
   PLCPouSchema,
   PLCProgramSchema,
@@ -949,6 +980,7 @@ export type {
   PLCFunction,
   PLCFunctionBlock,
   PLCGlobalVariable,
+  PLCHmiPublish,
   PLCInstance,
   PLCPou,
   PLCProgram,

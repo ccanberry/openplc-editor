@@ -51,8 +51,10 @@ export interface RegistryChannel {
 }
 
 /** Well-known consumer kinds. Left open (`string`) so future producers can
- *  register without changing the core. */
-export type ConsumerKind = 'pin-mapping' | 'vpp-io' | 'modbus-tcp-remote' | 'ethercat' | (string & {})
+ *  register without changing the core. `hmi-publish` is the auto-publish
+ *  window's consumer (see `utils/hmi-publish/`): published project globals
+ *  claiming `%QW` holding registers for HMI symbol binding. */
+export type ConsumerKind = 'pin-mapping' | 'vpp-io' | 'modbus-tcp-remote' | 'ethercat' | 'hmi-publish' | (string & {})
 
 export interface RegistryConsumer {
   id: string

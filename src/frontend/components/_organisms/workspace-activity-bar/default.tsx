@@ -157,7 +157,11 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   // ---------------------------------------------------------------------------
 
   const handleBuild = useCallback(
-    async (overrides?: { compileOnly?: boolean; cleanBuild?: boolean; debugCheckpoints?: boolean }): Promise<boolean> => {
+    async (overrides?: {
+      compileOnly?: boolean
+      cleanBuild?: boolean
+      debugCheckpoints?: boolean
+    }): Promise<boolean> => {
       if (isCompiling) return false
 
       // Reveal the console and re-attach it to the tail so build output is
@@ -238,6 +242,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       }
 
       addLog({ id: crypto.randomUUID(), level: 'info', message: 'Build process started' })
+
+      // Auto-publish stability: persist the current publish-register
+      // allocation into the store BEFORE snapshotting, so this build's
+      // registers become pinned for every later build in the session
+      // (deleting a published variable never renumbers the others).
+      useOpenPLCStore.getState().projectActions.refreshHmiPublishAssignments()
 
       // Compile-time alias resolution: snapshot the project with every
       // variable's `location` resolved to a concrete IEC address (alias name

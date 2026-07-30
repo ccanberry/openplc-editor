@@ -39,6 +39,7 @@ import { getErrorMessage } from '../../../../frontend/utils/get-error-message'
 import { generateModbusSlaveConfig } from '../../../../frontend/utils/modbus/generate-modbus-slave-config'
 import { generateOpcUaConfig, OpcUaConfigError } from '../../../../frontend/utils/opcua'
 import { generateS7CommConfig } from '../../../../frontend/utils/s7comm'
+import type { HmiPublishPoint } from '../../../../middleware/shared/utils/hmi-publish'
 import { generateEthercatConfig } from '../../ethercat/generate-ethercat-config'
 import { validateEthercatConfig } from '../../ethercat/validate-ethercat-config'
 import type { PLCRemoteDevice, PLCServer } from '../../types/PLC/open-plc'
@@ -70,6 +71,16 @@ export interface GenerateConfsInput {
    *  OPC-UA's `parseDebugMap` reads this to resolve `%I/%Q/%M`.
    *  Caller pulls it out of the strucpp emitted-files map. */
   debugMapContent: string
+  /** Auto-publish symbol data.  Present only when the project has
+   *  publish-flagged globals — drives `conf/hmi_map.json` emission.
+   *  `md5` is the same PROGRAM_MD5 `debug-map.json` carries so HMIs
+   *  can verify they bind against the deployed program. */
+  hmiPublish?: {
+    md5: string
+    windowBase: number
+    windowCount: number
+    points: HmiPublishPoint[]
+  }
   /** Log channel.  OPC-UA generation emits informational progress
    *  via this; error logs go here too before the relevant errors
    *  are rethrown.  Each adapter wires its native log channel
@@ -92,6 +103,9 @@ export interface GenerateConfsOutput {
    *  return guarantees either `null` (no devices) or a string that
    *  passed validation. */
   ethercat: string | null
+  /** Auto-publish symbol file (`conf/hmi_map.json`).  `null` when the
+   *  project publishes nothing. */
+  hmiMap: string | null
 }
 
 /**
@@ -110,7 +124,7 @@ export interface GenerateConfsOutput {
  * editor's "fail fast" gate.
  */
 export function generateRuntimeConfs(input: GenerateConfsInput): GenerateConfsOutput {
-  const { servers, remoteDevices, instances, debugMapContent, log } = input
+  const { servers, remoteDevices, instances, debugMapContent, hmiPublish, log } = input
 
   // Modbus slave / master / S7Comm: pure helpers.  Each returns `null`
   // when the project has no config of that type.  Master also forwards
@@ -152,5 +166,68 @@ export function generateRuntimeConfs(input: GenerateConfsInput): GenerateConfsOu
     throw new Error(`EtherCAT configuration is invalid: ${ethercatErrors.join('; ')}`)
   }
 
-  return { modbusSlave, modbusMaster, s7Comm, opcUa, ethercat }
+  // Auto-publish symbol file.  Pure transform of the allocation the
+  // pipeline's publish step produced — same md5 as debug-map.json so
+  // HMIs can verify the map matches the deployed program before
+  // binding registers by name.
+  let hmiMap: string | null = null
+  if (hmiPublish && hmiPublish.points.length > 0) {
+    hmiMap = generateHmiMapConfig(hmiPublish)
+    // The :502 slave only exposes registers below its holding-register
+    // qw_count.  The default (1024) covers the %QW512 window, but a
+    // project that shrank the buffer would silently truncate the
+    // published points — surface that loudly.
+    if (modbusSlave) {
+      warnOnTruncatedPublishWindow(modbusSlave, hmiPublish, log)
+    }
+  }
+
+  return { modbusSlave, modbusMaster, s7Comm, opcUa, ethercat, hmiMap }
+}
+
+/**
+ * Render `conf/hmi_map.json`.  Contract (see docs/AUTO_PUBLISH.md):
+ * `md5` = PROGRAM_MD5 of the deployed program (same value as
+ * debug-map.json / FC 0x45), `window` = the reserved auto-assign
+ * span, `points` = one entry per published variable in declaration
+ * order (`register` is the LOW word for `pair-lo-first` points).
+ */
+export function generateHmiMapConfig(hmiPublish: NonNullable<GenerateConfsInput['hmiPublish']>): string {
+  return JSON.stringify(
+    {
+      md5: hmiPublish.md5,
+      window: { base: hmiPublish.windowBase, count: hmiPublish.windowCount },
+      points: hmiPublish.points,
+    },
+    null,
+    2,
+  )
+}
+
+/** Warn when the Modbus slave's holding-register buffer cuts off part
+ *  of the published window (registers >= qw_count are unreachable). */
+function warnOnTruncatedPublishWindow(
+  modbusSlave: string,
+  hmiPublish: NonNullable<GenerateConfsInput['hmiPublish']>,
+  log: GenerateConfsInput['log'],
+): void {
+  let qwCount: number | undefined
+  try {
+    const parsed = JSON.parse(modbusSlave) as { buffer_mapping?: { holding_registers?: { qw_count?: number } } }
+    qwCount = parsed.buffer_mapping?.holding_registers?.qw_count
+  } catch {
+    return
+  }
+  if (typeof qwCount !== 'number') return
+  const highest = hmiPublish.points.reduce(
+    (max, point) => Math.max(max, point.register + (point.kind === 'pair-lo-first' ? 1 : 0)),
+    -1,
+  )
+  if (highest >= qwCount) {
+    log(
+      `Auto-publish: the Modbus slave holding-register buffer (qw_count=${qwCount}) is smaller than the highest ` +
+        `published register (%QW${highest}). Raise the buffer size in the Modbus server settings or the HMI cannot read these points.`,
+      'warning',
+    )
+  }
 }

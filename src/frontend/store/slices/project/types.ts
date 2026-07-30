@@ -118,6 +118,16 @@ export type ProjectActions = {
   createVariable: (dto: Omit<VariableDTO, 'data'> & { data: PLCVariable; rowToInsert?: number }) => ProjectResponse
   setPouVariables: (args: { pouName: string; variables: PLCVariable[] }) => ProjectResponse
   setGlobalVariables: (args: { variables: PLCVariable[] }) => ProjectResponse
+  /**
+   * Recompute the persisted auto-publish register assignments from the
+   * current published globals (shared `hmi-publish` allocator; the
+   * stored map enters as pins so nothing moves gratuitously) and write
+   * the result to `project.data.hmiPublish`. Called before compile and
+   * before save so registers stay stable across builds even when other
+   * published variables were deleted mid-session. No-op response when
+   * allocation reports errors — the compile pipeline surfaces those.
+   */
+  refreshHmiPublishAssignments: () => ProjectResponse
   updateVariable: (args: {
     scope: 'global' | 'local'
     associatedPou?: string

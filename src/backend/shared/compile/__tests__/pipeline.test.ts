@@ -53,6 +53,7 @@ jest.mock('../steps/generate-confs', () => ({
     s7Comm: '',
     opcUa: null,
     ethercat: '',
+    hmiMap: null,
   })),
 }))
 
@@ -1041,7 +1042,7 @@ describe('runCompilePipeline — side effects', () => {
     mockedConfs.mockImplementationOnce((input) => {
       input.log('dropped variable foo because bar', 'error')
       input.log('opcua found 5 nodes', 'info')
-      return { modbusSlave: '', modbusMaster: '', s7Comm: '', opcUa: null, ethercat: '' }
+      return { modbusSlave: '', modbusMaster: '', s7Comm: '', opcUa: null, ethercat: '', hmiMap: null }
     })
     const port = makePort()
     const { events, emit } = captureEvents()
@@ -1131,5 +1132,145 @@ describe('runCompilePipeline — side effects', () => {
     const stEvents = events.filter((e) => e.stage === 'st')
     expect(stEvents.some((e) => e.message === 'xml2st spawned subprocess' && e.level === 'info')).toBe(true)
     expect(stEvents.some((e) => e.message === 'xml2st: parsed 5 POUs' && e.level === 'info')).toBe(true)
+  })
+})
+
+describe('runCompilePipeline — auto-publish step', () => {
+  function publishedProject(globals: unknown[]): PLCProjectData {
+    return {
+      pous: [],
+      dataTypes: [],
+      configuration: { resource: { tasks: [], instances: [], globalVariables: globals } },
+      servers: [],
+      remoteDevices: [],
+    } as unknown as PLCProjectData
+  }
+
+  it('emits an info summary and threads hmiPublish into generateRuntimeConfs on v4', async () => {
+    const port = makePort()
+    const { events, emit } = captureEvents()
+    const result = await runCompilePipeline(
+      makeArgs({
+        projectData: publishedProject([
+          {
+            name: 'Counter',
+            type: { definition: 'base-type', value: 'INT' },
+            location: '',
+            documentation: '',
+            publish: true,
+          },
+        ]),
+        isSimulator: false,
+        isRuntimeV4: true,
+        boardRuntime: 'openplc-compiler',
+        compileOnly: true,
+      }),
+      port,
+      emit,
+    )
+    expect(result.success).toBe(true)
+    expect(
+      events.some(
+        (e) => e.stage === 'validate' && e.level === 'info' && e.message.includes('Auto-publish: 1 variable(s)'),
+      ),
+    ).toBe(true)
+    expect(mockedConfs).toHaveBeenCalledTimes(1)
+    const confsInput = mockedConfs.mock.calls[0][0]
+    expect(confsInput.hmiPublish).toEqual({
+      md5: 'a'.repeat(32),
+      windowBase: 512,
+      windowCount: 1,
+      points: [
+        { name: 'Counter', group: 'Global', register: 512, type: 'INT', kind: 'word', access: 'rw', scale: null },
+      ],
+    })
+  })
+
+  it('rides conf/hmi_map.json into the v4 upload bundle', async () => {
+    mockedConfs.mockReturnValueOnce({
+      modbusSlave: '',
+      modbusMaster: '',
+      s7Comm: '',
+      opcUa: null,
+      ethercat: '',
+      hmiMap: '{"md5":"m","window":{"base":512,"count":1},"points":[]}',
+    })
+    const port = makePort()
+    const { emit } = captureEvents()
+    await runCompilePipeline(
+      makeArgs({
+        projectData: publishedProject([
+          {
+            name: 'Counter',
+            type: { definition: 'base-type', value: 'INT' },
+            location: '',
+            documentation: '',
+            publish: true,
+          },
+        ]),
+        isSimulator: false,
+        isRuntimeV4: true,
+        boardRuntime: 'openplc-compiler',
+        deviceContext: deviceContextFixture,
+      }),
+      port,
+      emit,
+    )
+    const bundle = port.uploadRuntimeV4.mock.calls[0][0].bundle
+    expect(bundle['conf/hmi_map.json']).toBe('{"md5":"m","window":{"base":512,"count":1},"points":[]}')
+  })
+
+  it('surfaces allocation warnings as warning events (pin below the window base)', async () => {
+    const port = makePort()
+    const { events, emit } = captureEvents()
+    const result = await runCompilePipeline(
+      makeArgs({
+        projectData: publishedProject([
+          {
+            name: 'Pinned',
+            type: { definition: 'base-type', value: 'INT' },
+            location: '%QW100',
+            documentation: '',
+            publish: true,
+          },
+        ]),
+      }),
+      port,
+      emit,
+    )
+    expect(result.success).toBe(true)
+    expect(
+      events.some(
+        (e) => e.level === 'warning' && e.message.startsWith('Auto-publish:') && e.message.includes('%QW100'),
+      ),
+    ).toBe(true)
+  })
+
+  it('bails before transpiling when a published variable has an unsupported type', async () => {
+    const port = makePort()
+    const { events, emit } = captureEvents()
+    const result = await runCompilePipeline(
+      makeArgs({
+        projectData: publishedProject([
+          {
+            name: 'Label',
+            type: { definition: 'base-type', value: 'STRING' },
+            location: '',
+            documentation: '',
+            publish: true,
+          },
+        ]),
+      }),
+      port,
+      emit,
+    )
+    expect(result.success).toBe(false)
+    expect(port.transpileToSt).not.toHaveBeenCalled()
+    expect(
+      events.some((e) => e.level === 'error' && e.message.includes('Auto-publish:') && e.message.includes('STRING')),
+    ).toBe(true)
+    expect(
+      events.some((e) => e.message === 'Auto-publish allocation failed. Fix the published variables and try again.'),
+    ).toBe(true)
   })
 })

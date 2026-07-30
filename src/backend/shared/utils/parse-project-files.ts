@@ -68,6 +68,11 @@ export interface ParsedProjectData {
      *  seeds a template on first edit). */
     libraryManifest?: string
     debugVariables?: { global?: string[]; pous?: Record<string, string[]> }
+    /** Persisted auto-publish register assignments (`name → %QW<n>`).
+     *  Fed back into the compile-time allocator as pinned registers so
+     *  published variables never renumber across builds.  Absent for
+     *  projects with no published globals. */
+    hmiPublish?: { assignments: Record<string, string> }
   }
   deviceConfiguration?: DeviceConfiguration
   /** Pin mappings parsed from `devices/pin-mapping.json`. Forwarded
@@ -558,6 +563,7 @@ export function parseProjectFiles(
       // — the manifest editor seeds a template before first save.
       ...(metaType === 'plc-library' ? { libraryManifest } : {}),
       debugVariables: data.debugVariables as ParsedProjectData['projectData']['debugVariables'],
+      ...(data.hmiPublish ? { hmiPublish: data.hmiPublish as { assignments: Record<string, string> } } : {}),
     },
     deviceConfiguration,
     devicePinMapping,

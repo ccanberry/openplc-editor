@@ -748,6 +748,20 @@ describe('parseProjectFiles — configuration fallback', () => {
     const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
     expect(result.projectData.debugVariables).toEqual({ global: ['g1'], pous: { P1: ['v1'] } })
   })
+
+  it('reads the auto-publish assignment map from project data', () => {
+    const projectJson = makeProjectJson({
+      hmiPublish: { assignments: { Counter: '%QW512', Speed: '%QW513' } },
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.hmiPublish).toEqual({ assignments: { Counter: '%QW512', Speed: '%QW513' } })
+  })
+
+  it('leaves hmiPublish absent for legacy projects without the field', () => {
+    const projectJson = makeProjectJson({})
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.hmiPublish).toBeUndefined()
+  })
 })
 
 // ---------------------------------------------------------------------------

@@ -66,6 +66,12 @@ export interface PLCVariable {
   initialValue?: string | null
   documentation: string
   debug?: boolean
+  /** Auto-publish flag (globals only): assign a Modbus `%QW` register
+   *  automatically at compile time + emit into `conf/hmi_map.json`. */
+  publish?: boolean
+  /** GVL group label (globals only). Absent = group "Global". Storage
+   *  stays one flat array — this is a per-variable tag. */
+  group?: string
 }
 
 export interface PLCTask {
@@ -461,6 +467,13 @@ export interface PLCProjectData {
   debugVariables?: {
     global?: string[]
     pous?: Record<string, string[]>
+  }
+  /** Persisted auto-publish register assignments (`name → %QW<n>`).
+   *  Written on save, fed back as pinned registers on the next build
+   *  so deleting one published variable never renumbers the others.
+   *  Absent when the project publishes nothing. */
+  hmiPublish?: {
+    assignments: Record<string, string>
   }
 }
 

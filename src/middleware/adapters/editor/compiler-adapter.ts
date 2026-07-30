@@ -48,6 +48,9 @@ interface IpcProjectData {
   servers?: PLCProjectData['servers']
   remoteDevices?: PLCProjectData['remoteDevices']
   libraries?: PLCProjectData['libraries']
+  /** Persisted auto-publish assignments — the pipeline's allocation
+   *  step reads these as pinned registers (stability contract). */
+  hmiPublish?: PLCProjectData['hmiPublish']
   originalCppPous?: Array<{ name: string; code: string; variables: unknown[] }>
 }
 
@@ -74,6 +77,7 @@ function toIpcProjectData(data: PLCProjectData & { originalCppPous?: unknown[] }
     servers: data.servers,
     remoteDevices: data.remoteDevices,
     libraries: data.libraries,
+    ...(data.hmiPublish ? { hmiPublish: data.hmiPublish } : {}),
     ...(data.originalCppPous ? { originalCppPous: data.originalCppPous as IpcProjectData['originalCppPous'] } : {}),
   }
 }

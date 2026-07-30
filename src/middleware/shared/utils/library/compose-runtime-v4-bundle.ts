@@ -90,6 +90,10 @@ export interface ComposeRuntimeV4BundleInput {
      *  run `validateEthercatConfig` first and abort the compile (not
      *  call the composer) when validation produces errors. */
     ethercat: string
+    /** Auto-publish symbol file from `generateRuntimeConfs`
+     *  (`generateHmiMapConfig`).  `null` / absent when the project
+     *  publishes nothing — the file is skipped. */
+    hmiMap?: string | null
   }
 }
 
@@ -142,6 +146,7 @@ export function composeRuntimeV4Bundle(input: ComposeRuntimeV4BundleInput): Reco
   if (input.confs.modbusMaster) files['conf/modbus_master.json'] = input.confs.modbusMaster
   if (input.confs.s7Comm) files['conf/s7comm.json'] = input.confs.s7Comm
   if (input.confs.opcUa) files['conf/opcua.json'] = input.confs.opcUa
+  if (input.confs.hmiMap) files['conf/hmi_map.json'] = input.confs.hmiMap
   files['conf/ethercat.json'] = input.confs.ethercat
 
   return files

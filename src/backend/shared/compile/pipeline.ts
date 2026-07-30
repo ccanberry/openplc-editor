@@ -40,6 +40,7 @@ import type { DevicePin } from '../types/PLC/devices'
 // (plural `configurations`) and converts at the pipeline entry — see C1
 // in the architectural plan.
 import type { PLCProjectData } from '../types/PLC/open-plc'
+import { preparePublishedGlobals } from './steps/allocate-published-globals'
 import { buildCBlocksFromPous, composeFirmwareBundle } from './steps/compose-firmware-bundle'
 import { generateRuntimeConfs } from './steps/generate-confs'
 import { generateDefinesContent } from './steps/generate-defines'
@@ -394,9 +395,37 @@ async function runCompilePipelineInner(
   // are already in ST form and that `originalCppPous` is attached
   // when the project has C/C++ POUs.
   // ---------------------------------------------------------------------
-  const processedData = projectData as PLCProjectData & {
+  const preprocessedData = projectData as PLCProjectData & {
     originalCppPous?: Array<{ name: string; code: string; variables: unknown[] }>
   }
+
+  // ---------------------------------------------------------------------
+  // Step 0a: Auto-publish — allocate `%QW` registers for publish-flagged
+  // globals and rewrite the compile snapshot in memory (direct `AT %QWn`
+  // locations for 16-bit types; synthetic glue FB + mirror program +
+  // 100 ms task for 32-bit pairs).  Identity pass-through for projects
+  // with no published globals, so legacy builds stay byte-identical.
+  // Persisted assignments (`projectData.hmiPublish`) enter as pins, so
+  // registers never move across builds.  See `allocate-published-globals`.
+  // ---------------------------------------------------------------------
+  const publishPrep = preparePublishedGlobals(preprocessedData)
+  for (const warning of publishPrep.warnings) {
+    emit({ stage: 'validate', message: `Auto-publish: ${warning}`, level: 'warning' })
+  }
+  if (publishPrep.errors.length > 0) {
+    for (const message of publishPrep.errors) {
+      emit({ stage: 'validate', message: `Auto-publish: ${message}`, level: 'error' })
+    }
+    return bailError(emit, 'validate', 'Auto-publish allocation failed. Fix the published variables and try again.')
+  }
+  if (publishPrep.hasPublishes) {
+    emit({
+      stage: 'validate',
+      message: `Auto-publish: ${publishPrep.points.length} variable(s) mapped at %QW${publishPrep.windowBase}+ (${publishPrep.windowCount} register(s) in window).`,
+      level: 'info',
+    })
+  }
+  const processedData = publishPrep.projectData
   const originalCppPous = processedData.originalCppPous ?? []
 
   // ---------------------------------------------------------------------
@@ -538,6 +567,20 @@ async function runCompilePipelineInner(
           }),
         ),
         debugMapContent: debugMapJson,
+        // Auto-publish symbol file: emitted only when the project
+        // publishes globals — `conf/hmi_map.json` carries the same
+        // PROGRAM_MD5 as debug-map.json so HMIs can verify they bind
+        // against the deployed program.
+        ...(publishPrep.hasPublishes
+          ? {
+              hmiPublish: {
+                md5,
+                windowBase: publishPrep.windowBase,
+                windowCount: publishPrep.windowCount,
+                points: publishPrep.points,
+              },
+            }
+          : {}),
         log: (message, level) => emit({ stage: 'confs', message, level }),
       })
     } catch (error) {
@@ -564,6 +607,7 @@ async function runCompilePipelineInner(
         // `generateRuntimeConfs` validated EtherCAT before returning;
         // null here means "no EtherCAT devices" → composer skips.
         ethercat: confs.ethercat ?? '',
+        hmiMap: confs.hmiMap,
       },
     })
     emit({

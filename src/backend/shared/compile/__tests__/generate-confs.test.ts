@@ -112,6 +112,7 @@ describe('generateRuntimeConfs — happy path', () => {
       s7Comm: '{"s7":{}}',
       opcUa: '{"opcua":{}}',
       ethercat: '{"ethercat":{}}',
+      hmiMap: null,
     })
   })
 
@@ -159,6 +160,7 @@ describe('generateRuntimeConfs — happy path', () => {
       s7Comm: null,
       opcUa: null,
       ethercat: null,
+      hmiMap: null,
     })
   })
 })
@@ -285,5 +287,78 @@ describe('generateRuntimeConfs — ordering invariants', () => {
     // ordering — saves wasted work on bad OPC-UA projects).
     expect(callOrder.indexOf('opcua')).toBeLessThan(callOrder.indexOf('ethercat-gen'))
     expect(callOrder.indexOf('ethercat-gen')).toBeLessThan(callOrder.indexOf('ethercat-validate'))
+  })
+})
+
+describe('generateRuntimeConfs — hmi_map.json (auto-publish)', () => {
+  const points = [
+    {
+      name: 'Counter',
+      group: 'Global',
+      register: 512,
+      type: 'INT',
+      kind: 'word' as const,
+      access: 'rw' as const,
+      scale: null,
+    },
+    {
+      name: 'Speed',
+      group: 'Axis',
+      register: 513,
+      type: 'REAL',
+      kind: 'pair-lo-first' as const,
+      access: 'ro' as const,
+      scale: null,
+    },
+  ]
+  const hmiPublish = { md5: 'abc123', windowBase: 512, windowCount: 3, points }
+
+  it('emits null when the project publishes nothing (absent input)', () => {
+    expect(generateRuntimeConfs(makeInput()).hmiMap).toBeNull()
+  })
+
+  it('emits null when the publish input carries no points', () => {
+    const result = generateRuntimeConfs(makeInput({ hmiPublish: { ...hmiPublish, points: [] } }))
+    expect(result.hmiMap).toBeNull()
+  })
+
+  it('renders md5 + window + points in declaration order', () => {
+    const result = generateRuntimeConfs(makeInput({ hmiPublish }))
+    expect(result.hmiMap).not.toBeNull()
+    expect(JSON.parse(result.hmiMap as string)).toEqual({
+      md5: 'abc123',
+      window: { base: 512, count: 3 },
+      points,
+    })
+  })
+
+  it('warns when the Modbus slave qw_count truncates the published window', () => {
+    const log = jest.fn()
+    mockedModbusSlave.mockReturnValue(JSON.stringify({ buffer_mapping: { holding_registers: { qw_count: 513 } } }))
+    generateRuntimeConfs(makeInput({ hmiPublish, log }))
+    // Highest published register is 514 (pair at 513/514) >= 513.
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('qw_count=513'), 'warning')
+  })
+
+  it('stays silent when the slave buffer covers the window', () => {
+    const log = jest.fn()
+    mockedModbusSlave.mockReturnValue(JSON.stringify({ buffer_mapping: { holding_registers: { qw_count: 1024 } } }))
+    generateRuntimeConfs(makeInput({ hmiPublish, log }))
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining('qw_count'), 'warning')
+  })
+
+  it('ignores an unparseable slave conf when checking the window', () => {
+    const log = jest.fn()
+    mockedModbusSlave.mockReturnValue('not json')
+    const result = generateRuntimeConfs(makeInput({ hmiPublish, log }))
+    expect(result.hmiMap).not.toBeNull()
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining('qw_count'), 'warning')
+  })
+
+  it('ignores a slave conf without a numeric qw_count', () => {
+    const log = jest.fn()
+    mockedModbusSlave.mockReturnValue(JSON.stringify({ buffer_mapping: {} }))
+    generateRuntimeConfs(makeInput({ hmiPublish, log }))
+    expect(log).not.toHaveBeenCalledWith(expect.stringContaining('qw_count'), 'warning')
   })
 })

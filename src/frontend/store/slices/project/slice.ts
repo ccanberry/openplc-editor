@@ -11,6 +11,7 @@ import type {
   S7CommPlcIdentity,
   S7CommServerSettings,
 } from '../../../../middleware/shared/ports/types'
+import { allocateHmiPublish } from '../../../../middleware/shared/utils/hmi-publish'
 import {
   buildAddressPool,
   buildAliasRegistry,
@@ -726,6 +727,32 @@ const createProjectSlice: StateCreator<ProjectSliceRoot, [], [], ProjectSlice> =
         }),
       )
       return ok()
+    },
+    refreshHmiPublishAssignments: () => {
+      // Recompute the auto-publish register map from the current
+      // published globals; the previously stored map enters as pins so
+      // existing registers never move (stability across builds). When
+      // nothing is published the section is removed so a legacy
+      // project's `project.json` stays byte-identical on save.
+      const state = getState()
+      const globals = state.project.data.configurations.resource.globalVariables
+      const stored = state.project.data.hmiPublish?.assignments ?? {}
+      const allocation = allocateHmiPublish(globals, stored)
+      if (allocation.errors.length > 0) {
+        // Leave the stored map untouched — the compile pipeline
+        // reports the underlying problem with full context.
+        return fail(allocation.errors.join('\n'), 'Auto-publish')
+      }
+      const next = allocation.points.length > 0 ? { assignments: allocation.assignments } : undefined
+      const current = state.project.data.hmiPublish
+      if (JSON.stringify(next ?? null) === JSON.stringify(current ?? null)) return ok(current)
+      setState(
+        produce((slice: ProjectSlice) => {
+          if (next) slice.project.data.hmiPublish = next
+          else delete slice.project.data.hmiPublish
+        }),
+      )
+      return ok(next)
     },
     updateVariable: ({ scope, associatedPou, rowId, variableId, data: updates }) => {
       if (scope === 'local') {

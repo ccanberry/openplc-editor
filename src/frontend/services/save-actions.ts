@@ -14,6 +14,7 @@
 import type { PlatformCapabilities } from '../../middleware/shared/ports/platform-capabilities'
 import type { ProjectPort, RawProjectFile, WriteProjectFiles } from '../../middleware/shared/ports/project-port'
 import type { PLCPou } from '../../middleware/shared/ports/types'
+import { allocateHmiPublish } from '../../middleware/shared/utils/hmi-publish'
 import { openPLCStoreBase } from '../store'
 import type { LadderFlowType } from '../store/slices/ladder'
 import { parseIecStringToVariables } from '../utils/generate-iec-string-to-variables'
@@ -55,6 +56,21 @@ type ProjectFileSpec = {
 function buildProjectJsonContent(state: StoreState): string {
   const { project } = state
   const debugVariables = collectDebugVariables(project.data.configurations.resource.globalVariables, project.data.pous)
+  // Auto-publish register assignments — recomputed here (pure +
+  // idempotent: the stored map enters as pins, so nothing moves) so
+  // preview, snapshot, and save serialisation always agree. Absent
+  // when the project publishes nothing, keeping legacy project.json
+  // byte-identical. When allocation reports errors (bad publish
+  // config) the previously stored section is preserved verbatim —
+  // the compile pipeline owns the error reporting.
+  const globals = project.data.configurations.resource.globalVariables
+  const allocation = allocateHmiPublish(globals, project.data.hmiPublish?.assignments ?? {})
+  const hmiPublish =
+    allocation.errors.length > 0
+      ? project.data.hmiPublish
+      : allocation.points.length > 0
+        ? { assignments: allocation.assignments }
+        : undefined
   // Per-project library enablement, alphabetical-by-name for stable
   // diffs.  Bundled / canonical strucpp libs are always-on regardless
   // and intentionally don't appear here.
@@ -75,6 +91,7 @@ function buildProjectJsonContent(state: StoreState): string {
         configuration: project.data.configurations,
         libraries,
         debugVariables,
+        ...(hmiPublish ? { hmiPublish } : {}),
       },
     },
     null,
@@ -321,6 +338,10 @@ export async function executeSaveProject(
   projectPort: ProjectPort,
   capabilities: PlatformCapabilities,
 ): Promise<{ success: boolean }> {
+  // Refresh the persisted auto-publish register map before the state
+  // snapshot below, so the serialized project.json and the in-store
+  // pin baseline (used by the next compile) stay in lockstep.
+  openPLCStoreBase.getState().projectActions.refreshHmiPublishAssignments()
   const state = openPLCStoreBase.getState()
   // Persist gate.  Every save path — Ctrl+S, File → Save, auto-save after
   // a rename/delete, the AI panel — funnels through here.  When the viewer
@@ -491,6 +512,9 @@ export async function executeSaveFile(
   projectPort: ProjectPort,
   capabilities: PlatformCapabilities,
 ): Promise<{ success: boolean }> {
+  // Same auto-publish refresh as executeSaveProject — the resource /
+  // data-type branches serialize project.json from this snapshot.
+  openPLCStoreBase.getState().projectActions.refreshHmiPublishAssignments()
   const state = openPLCStoreBase.getState()
   // See executeSaveProject for rationale — same persist gate.
   if (!state.workspace.canEdit) {

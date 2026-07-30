@@ -437,4 +437,92 @@ const EditableLocationCell = ({
   )
 }
 
-export { EditableDocumentationCell, EditableInitialValueCell, EditableLocationCell, EditableNameCell }
+/**
+ * GVL group cell — free text with a datalist of the groups already in
+ * use, so grouping stays a per-variable label (flat storage) while the
+ * dropdown makes reusing an existing group one click. Empty = the
+ * default "Global" group.
+ */
+const EditableGroupCell = ({
+  getValue,
+  row: { index },
+  column: { id },
+  table,
+  editable = true,
+}: IEditableCellProps) => {
+  const initialValue = getValue<string | undefined>()
+
+  const {
+    searchQuery,
+    project: {
+      data: {
+        configurations: {
+          resource: { globalVariables },
+        },
+      },
+    },
+  } = useOpenPLCStore()
+
+  const [cellValue, setCellValue] = useState(initialValue ?? '')
+  const [isEditing, setIsEditing] = useState(false)
+
+  const existingGroups = Array.from(
+    new Set(globalVariables.map((variable) => (variable.group ?? '').trim()).filter((group) => group.length > 0)),
+  ).sort()
+
+  const onBlur = () => {
+    if (cellValue === (initialValue ?? '')) return setIsEditing(false)
+    table.options.meta?.updateData(index, id, cellValue.trim())
+    setIsEditing(false)
+  }
+
+  const handleStartEditing = () => {
+    if (!editable) return
+    setIsEditing(true)
+  }
+
+  useEffect(() => {
+    setCellValue(initialValue ?? '')
+  }, [initialValue])
+
+  return isEditing ? (
+    <>
+      <InputWithRef
+        value={cellValue}
+        list='global-variable-group-options'
+        onChange={(e) => setCellValue(e.target.value)}
+        onBlur={onBlur}
+        placeholder='Global'
+        className='flex w-full flex-1 bg-transparent p-2 text-center outline-none'
+      />
+      <datalist id='global-variable-group-options'>
+        {existingGroups.map((group) => (
+          <option key={group} value={group} />
+        ))}
+      </datalist>
+    </>
+  ) : (
+    <div
+      onClick={handleStartEditing}
+      className={cn('flex w-full flex-1 bg-transparent p-2 text-center outline-none', {
+        'pointer-events-none': !editable,
+      })}
+    >
+      <HighlightedText
+        text={cellValue.trim() || 'Global'}
+        searchQuery={searchQuery}
+        className={cn('h-4 w-full max-w-[400px] overflow-hidden text-ellipsis break-all', {
+          'opacity-50': cellValue.trim().length === 0,
+        })}
+      />
+    </div>
+  )
+}
+
+export {
+  EditableDocumentationCell,
+  EditableGroupCell,
+  EditableInitialValueCell,
+  EditableLocationCell,
+  EditableNameCell,
+}

@@ -83,8 +83,17 @@ describe('composeRuntimeV4Bundle', () => {
     expect('conf/modbus_master.json' in files).toBe(false)
     expect('conf/s7comm.json' in files).toBe(false)
     expect('conf/opcua.json' in files).toBe(false)
+    // hmi_map is emitted only for projects with published globals.
+    expect('conf/hmi_map.json' in files).toBe(false)
     // ethercat is always emitted (always non-null on input).
     expect(files['conf/ethercat.json']).toBe('{"masters":[]}')
+  })
+
+  it('writes conf/hmi_map.json when the auto-publish symbol file is provided', () => {
+    const input = baseInput()
+    input.confs.hmiMap = '{"md5":"abc","window":{"base":512,"count":1},"points":[]}'
+    const files = composeRuntimeV4Bundle(input)
+    expect(files['conf/hmi_map.json']).toBe('{"md5":"abc","window":{"base":512,"count":1},"points":[]}')
   })
 
   it('writes each conf/*.json that is provided', () => {

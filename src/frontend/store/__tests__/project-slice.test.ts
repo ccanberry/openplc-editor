@@ -787,6 +787,83 @@ describe('createProjectSlice', () => {
     })
   })
 
+  describe('refreshHmiPublishAssignments', () => {
+    it('is a no-op (and keeps the section absent) when nothing is published', () => {
+      store.getState().projectActions.createVariable({ scope: 'global', data: makeVariable('plain', 'global') })
+      const result = store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(result.ok).toBe(true)
+      expect(store.getState().project.data.hmiPublish).toBeUndefined()
+    })
+
+    it('allocates registers for published globals starting at %QW512', () => {
+      store.getState().projectActions.setGlobalVariables({
+        variables: [
+          { ...makeVariable('counter', 'global'), publish: true },
+          { ...makeVariable('speed', 'global'), publish: true, type: { definition: 'base-type', value: 'REAL' } },
+        ],
+      })
+      const result = store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(result.ok).toBe(true)
+      expect(store.getState().project.data.hmiPublish).toEqual({
+        assignments: { counter: '%QW512', speed: '%QW513' },
+      })
+    })
+
+    it('keeps stored registers stable when another published variable is deleted', () => {
+      store.getState().projectActions.setGlobalVariables({
+        variables: [
+          { ...makeVariable('a', 'global'), publish: true },
+          { ...makeVariable('b', 'global'), publish: true },
+        ],
+      })
+      store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(store.getState().project.data.hmiPublish?.assignments.b).toBe('%QW513')
+
+      store.getState().projectActions.setGlobalVariables({
+        variables: [{ ...makeVariable('b', 'global'), publish: true }],
+      })
+      store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(store.getState().project.data.hmiPublish?.assignments).toEqual({ b: '%QW513' })
+    })
+
+    it('does not touch state when the recomputed map is unchanged', () => {
+      store.getState().projectActions.setGlobalVariables({
+        variables: [{ ...makeVariable('a', 'global'), publish: true }],
+      })
+      store.getState().projectActions.refreshHmiPublishAssignments()
+      const before = store.getState().project
+      const result = store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(result.ok).toBe(true)
+      expect(store.getState().project).toBe(before)
+    })
+
+    it('removes the section when the last published variable is unpublished', () => {
+      store.getState().projectActions.setGlobalVariables({
+        variables: [{ ...makeVariable('a', 'global'), publish: true }],
+      })
+      store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(store.getState().project.data.hmiPublish).toBeDefined()
+
+      store.getState().projectActions.setGlobalVariables({
+        variables: [{ ...makeVariable('a', 'global'), publish: false }],
+      })
+      store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(store.getState().project.data.hmiPublish).toBeUndefined()
+    })
+
+    it('fails (leaving the stored map untouched) when allocation reports errors', () => {
+      store.getState().projectActions.setGlobalVariables({
+        variables: [
+          { ...makeVariable('bad', 'global'), publish: true, type: { definition: 'base-type', value: 'LREAL' } },
+        ],
+      })
+      const result = store.getState().projectActions.refreshHmiPublishAssignments()
+      expect(result.ok).toBe(false)
+      expect(result.title).toBe('Auto-publish')
+      expect(store.getState().project.data.hmiPublish).toBeUndefined()
+    })
+  })
+
   describe('updateVariable', () => {
     it('updates a local variable by variableId', () => {
       seedPou(store, makePou('Main', 'program', [makeVariable('x')]))
