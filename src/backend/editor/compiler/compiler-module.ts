@@ -2419,6 +2419,7 @@ class CompilerModule {
         filename: string
         contentType: string
         cleanBuild: boolean
+      hwTarget?: string
         onUploadAccepted?: (responseBody: string) => void
       }) => Promise<{ success: true; data: string } | { success: false; error: string }>
       /**

@@ -429,6 +429,9 @@ class MainProcessBridge implements MainIpcModule {
     filename: string
     contentType: string
     cleanBuild: boolean
+    /** Hardware target for THIS upload: 'native-linux' | 'arm9'. Omitted leaves the
+     *  runtime's scripts/target.conf in charge, which is what older editors do. */
+    hwTarget?: string
     onUploadAccepted?: (responseBody: string) => void
   }): Promise<{ success: true; data: string } | { success: false; error: string }> {
     type UploadResult = { success: true; data: string } | { success: false; error: string; statusCode?: number }
@@ -440,7 +443,15 @@ class MainProcessBridge implements MainIpcModule {
     )
     const footer = Buffer.from(`\r\n--${boundary}--\r\n`)
     const reqBody = Buffer.concat([header, opts.fileBuffer, footer] as unknown as ReadonlyArray<Uint8Array>)
-    const path = opts.cleanBuild ? '/api/upload-file?clean=1' : '/api/upload-file'
+    // ?hw= is what makes the Device dropdown mean something. Without it the hardware
+    // target came only from scripts/target.conf -- a global file on a shared compile server
+    // that this editor never read -- so selecting a local board still cross-compiled and
+    // scp'd to the ARM9. Per-upload also keeps two concurrent uploads independent.
+    const params = new URLSearchParams()
+    if (opts.cleanBuild) params.set('clean', '1')
+    if (opts.hwTarget) params.set('hw', opts.hwTarget)
+    const query = params.toString()
+    const path = query ? `/api/upload-file?${query}` : '/api/upload-file'
 
     const doRequest = (token: string): Promise<UploadResult> =>
       new Promise((resolve) => {

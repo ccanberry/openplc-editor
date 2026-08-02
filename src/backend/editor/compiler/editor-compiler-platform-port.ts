@@ -64,6 +64,24 @@ import { dirname, join } from 'path'
 
 import type { CompilerModule } from './compiler-module'
 
+/** Which hardware the runtime should build this upload for (S1.H.12).
+ *
+ * Derived from the SELECTED BOARD, so the Device dropdown decides where the program goes.
+ * Before this the answer lived only in the runtime's scripts/target.conf -- a global file on
+ * a shared compile server that the editor never read or wrote -- so with TARGET=arm9 +
+ * AUTO_DEPLOY=1 (its current contents) picking a local board still cross-compiled and scp'd
+ * to 192.168.0.10.
+ *
+ * `undefined` for every other board leaves target.conf in charge, so nothing that worked
+ * before changes.
+ */
+const hwTargetForBoard = (board: string | undefined): string | undefined => {
+  if (!board) return undefined
+  if (board.startsWith('Local')) return 'native-linux'
+  if (board.startsWith('MCM20.1')) return 'arm9'
+  return undefined
+}
+
 /**
  * Subset of `CompilerModule` the port adapter calls into.  Declared
  * explicitly rather than typing as `CompilerModule` directly so the
@@ -118,6 +136,7 @@ export interface EditorCompilerPlatformPortContext {
       filename: string
       contentType: string
       cleanBuild: boolean
+      hwTarget?: string
       onUploadAccepted?: (responseBody: string) => void
     }) => Promise<{ success: true; data: string } | { success: false; error: string }>
   }
@@ -388,6 +407,7 @@ export function createEditorCompilerPlatformPort(
               contentType: 'application/zip',
               fileBuffer,
               cleanBuild: context.cleanBuild,
+              hwTarget: hwTargetForBoard(context.boardTarget),
               onUploadAccepted: (responseBody) => {
                 try {
                   const response = JSON.parse(responseBody) as { CompilationStatus?: string }
@@ -488,6 +508,7 @@ export function createEditorCompilerPlatformPort(
               contentType: 'text/plain',
               fileBuffer,
               cleanBuild: context.cleanBuild,
+              hwTarget: hwTargetForBoard(context.boardTarget),
               onUploadAccepted: (responseBody) => {
                 try {
                   const response = JSON.parse(responseBody) as { CompilationStatus?: string }
