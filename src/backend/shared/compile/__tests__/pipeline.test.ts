@@ -441,6 +441,71 @@ describe('runCompilePipeline — runtime v4 path', () => {
     expect(port.compileArduino).not.toHaveBeenCalled()
   })
 
+  it('authors retain-names.json from retain-flagged globals and rides it in the bundle', async () => {
+    mockedStrucpp.mockReturnValue({
+      success: true,
+      files: [{ name: 'debug-map.json', content: JSON.stringify({ leaves: [{ path: 'CFG_SPEED' }] }) }],
+      errors: [],
+      warnings: [],
+      md5Hash: 'a'.repeat(32),
+      splitterFallbackMessage: null,
+      debugMapSummary: null,
+    })
+    const port = makePort()
+    const { events, emit } = captureEvents()
+    const result = await runCompilePipeline(
+      makeArgs({
+        isSimulator: false,
+        isRuntimeV4: true,
+        boardRuntime: 'openplc-compiler',
+        deviceContext: deviceContextFixture,
+        projectData: {
+          ...projectDataFixture,
+          configuration: {
+            resource: {
+              tasks: [],
+              instances: [],
+              globalVariables: [
+                {
+                  name: 'CFG_SPEED',
+                  type: { definition: 'base-type', value: 'INT' },
+                  location: '',
+                  documentation: '',
+                  retain: true,
+                },
+              ],
+            },
+          },
+        } as unknown as PLCProjectData,
+      }),
+      port,
+      emit,
+    )
+    expect(result.success).toBe(true)
+    const uploadedBundle = (port.uploadRuntimeV4 as jest.Mock).mock.calls[0][0].bundle as Record<string, string>
+    const names = JSON.parse(uploadedBundle['retain-names.json']) as { md5: string; names: string[] }
+    expect(names.names).toEqual(['CFG_SPEED'])
+    expect(names.md5).toBe('a'.repeat(32))
+    expect(events.some((e) => /declared retained/.test(e.message))).toBe(true)
+  })
+
+  it('ships an empty retain-names.json when the project flags nothing (overwrites stale files)', async () => {
+    const port = makePort()
+    const { emit } = captureEvents()
+    await runCompilePipeline(
+      makeArgs({
+        isSimulator: false,
+        isRuntimeV4: true,
+        boardRuntime: 'openplc-compiler',
+        deviceContext: deviceContextFixture,
+      }),
+      port,
+      emit,
+    )
+    const uploadedBundle = (port.uploadRuntimeV4 as jest.Mock).mock.calls[0][0].bundle as Record<string, string>
+    expect(JSON.parse(uploadedBundle['retain-names.json']).names).toEqual([])
+  })
+
   it('aborts when checkRuntimeVersion reports an incompatible runtime', async () => {
     mockedVersionGate.mockReturnValueOnce(false)
     const port = makePort({

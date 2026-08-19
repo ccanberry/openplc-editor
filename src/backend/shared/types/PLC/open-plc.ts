@@ -160,6 +160,17 @@ const PLCVariableSchema = z.object({
    */
   publish: z.boolean().optional(),
   /**
+   * Retain flag (global variables only). A flagged global is declared in
+   * the compile-emitted `retain-names.json` (beside `debug-map.json`);
+   * the runtime seeds it into `persist/retain.json` on first start and
+   * restores it before the first scan on every start after that, so the
+   * value survives a power cycle on any target. Values already stored on
+   * the target always win over redeploys. NOT strucpp's `VAR RETAIN`
+   * (that keyword's descriptor table is unusable — see the runtime's
+   * retain_manager.h); the names travel out-of-band.
+   */
+  retain: z.boolean().optional(),
+  /**
    * GVL group label (global variables only). Purely a per-variable
    * grouping tag — storage stays one flat array, so legacy projects
    * load unchanged (absent = group "Global").

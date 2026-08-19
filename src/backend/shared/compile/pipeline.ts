@@ -41,6 +41,7 @@ import type { DevicePin } from '../types/PLC/devices'
 // in the architectural plan.
 import type { PLCProjectData } from '../types/PLC/open-plc'
 import { preparePublishedGlobals } from './steps/allocate-published-globals'
+import { collectRetainedGlobals } from './steps/collect-retained-globals'
 import { buildCBlocksFromPous, composeFirmwareBundle } from './steps/compose-firmware-bundle'
 import { generateRuntimeConfs } from './steps/generate-confs'
 import { generateDefinesContent } from './steps/generate-defines'
@@ -590,6 +591,29 @@ async function runCompilePipelineInner(
         `Error generating Runtime v4 configs: ${error instanceof Error ? error.message : String(error)}`,
       )
     }
+
+    // Retained variables: author `retain-names.json` from the globals
+    // flagged `retain` and place it beside `debug-map.json` at the
+    // bundle root (both land in the runtime's `core/generated/`).
+    // Emitted even when empty — the runtime does not clear that
+    // directory between uploads, so this upload must overwrite any
+    // names file a previous program left behind.
+    const retained = collectRetainedGlobals({
+      globalVariables: processedData.configuration.resource.globalVariables as never,
+      debugMapContent: debugMapJson,
+      md5,
+    })
+    for (const warning of retained.warnings) {
+      emit({ stage: 'confs', message: warning, level: 'warning' })
+    }
+    if (retained.names.length > 0) {
+      emit({
+        stage: 'confs',
+        message: `retain: ${retained.names.length} variable leaf/leaves declared retained (retain-names.json)`,
+        level: 'info',
+      })
+    }
+    strucppFilesMap['retain-names.json'] = retained.retainNamesJson
 
     emit({ stage: 'runtime-v4-bundle', message: 'Composing Runtime v4 upload bundle...', level: 'info' })
     const cBlocks = buildCBlocksFromPous(originalCppPous as never)

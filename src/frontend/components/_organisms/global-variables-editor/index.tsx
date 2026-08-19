@@ -328,11 +328,11 @@ const GlobalVariablesEditor = () => {
 
       const newVariables = parseIecStringToVariables(editorCode)
 
-      // The IEC code view cannot express the publish flag or the GVL
-      // group label, so a code-view round-trip would silently wipe
-      // them. Preserve both by merging from the previous table state
-      // on variable NAME (same identity the auto-publish allocator and
-      // the debug-flags persistence use).
+      // The IEC code view cannot express the publish/retain flags or
+      // the GVL group label, so a code-view round-trip would silently
+      // wipe them. Preserve all three by merging from the previous
+      // table state on variable NAME (same identity the auto-publish
+      // allocator and the debug-flags persistence use).
       const previousByName = new Map(globalVariables.filter((v) => v.name).map((v) => [v.name, v]))
       const mergedVariables = newVariables.map((variable): PLCVariable => {
         const previous = previousByName.get(variable.name)
@@ -340,6 +340,7 @@ const GlobalVariablesEditor = () => {
         return {
           ...variable,
           ...(previous.publish !== undefined ? { publish: previous.publish } : {}),
+          ...(previous.retain !== undefined ? { retain: previous.retain } : {}),
           ...(previous.group !== undefined ? { group: previous.group } : {}),
         }
       })
