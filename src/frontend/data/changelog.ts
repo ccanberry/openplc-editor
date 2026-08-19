@@ -12,6 +12,24 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.2.0',
+    date: '2026-08-05',
+    changes: [
+      'RETAINED VARIABLES, and they survive a power cut. The runtime keeps them in persist/retain.json next to the runtime folder (not under build/, which a deploy or a clean wipes): the file is written back at every stop AND within a couple of seconds of a retained value changing, then applied over everything on the first scan. That is the soft-PLC equivalent of battery-backed SRAM — a hardware PLC writes retain every scan for free, a PC filesystem cannot, so the price is that changes in the last ~2 s before a hard cut are lost. Missing, corrupt or stale-keyed file is never fatal: one warning, compiled initial values, PLC keeps running.',
+      'The Device dropdown now decides where a program is built and sent. It previously did not: every upload cross-compiled for the ARM9 and auto-deployed to 192.168.0.10 regardless of the board selected, because the target was a single global file on the compile server. The hardware target is now chosen per upload.',
+      'New "Local (this PC)" board: builds and runs the program on the compile server itself, on the byte-identical v4 path, with no cross-compile and no deploy to the board. Use it to validate a program when no bench is available — a Local upload leaves the board untouched.',
+      'Published resource globals: a variable marked Publish is assigned an %QW512+ address automatically and exported to conf/hmi_map.json, so an HMI binds by NAME instead of by hand-counted register offset (CoDeSys-style GVL groups).',
+      'Simulated RoboCards. A card can be declared source:"sim" and behaves with a realistic timing model, so a rack can be brought up with cards missing. Inputs can be injected (plcctl PLUGIN_CMD:robocard:{"command":"inject",...}); loopback is no longer the default, because on a card that carries both inputs and outputs it ties DI to DO and silently freezes the program.',
+      'When every card is simulated the RS-485 bus is no longer opened at all, so a fully simulated rack needs no serial port present.',
+      'An AIO card\'s input span and output range come from robocard_config.json instead of a hardcoded 0-10 V. A card wired for 4-20 mA or ±10 V now reads and drives in the units it is actually configured for, and the declared range is what the scaling uses.',
+      'Runtime refuses to start a second plc_main (file lock). A duplicate instance fighting the first for the cards is worse than a clean refusal.',
+      'Fixed: DINTs read over the RoboCNC link came back word-swapped — REAL and DINT do not share a word order.',
+      'Fixed: a bit output could stay latched forever after a dropped journal bank-flip; bits are now always re-journalled.',
+      'Scan-time self-measurement: write 1 to the window register and the runtime reports min/max/mean scan time at :502 registers 1024+, then auto-clears.',
+      'RoboCard I/O is faster and quieter: one frame per DIO card, poll() instead of a spin loop, analog outputs written only on change, and the supervisor polls card status at 4 Hz instead of every scan.',
+    ],
+  },
+  {
     version: '1.1.0',
     date: '2026-07-27',
     changes: [
