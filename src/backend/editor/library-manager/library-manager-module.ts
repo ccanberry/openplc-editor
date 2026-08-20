@@ -59,13 +59,13 @@ export interface CatalogInstallBatchResult {
 export class LibraryManagerModule {
   private librariesDir: string
   private registryPath: string
-  private bundledDir: string
+  private bundledDirs: string[]
   private catalogTransport: CatalogTransportPort
 
   constructor(opts?: { librariesDir?: string; bundledDir?: string; catalogTransport?: CatalogTransportPort }) {
     this.librariesDir = opts?.librariesDir ?? join(app.getPath('userData'), 'libraries')
     this.registryPath = join(this.librariesDir, 'registry.json')
-    this.bundledDir = opts?.bundledDir ?? this.resolveDefaultBundledDir()
+    this.bundledDirs = opts?.bundledDir ? [opts.bundledDir] : this.resolveDefaultBundledDirs()
     // The catalog transport is injected so tests can stub HTTP — the
     // default desktop impl reads `OPENPLC_EDGE_API_URL` lazily on
     // every request, so it picks up env changes without restarting.
@@ -87,11 +87,16 @@ export class LibraryManagerModule {
    *     `release/app/package.json`'s `dependencies`, so
    *     electron-builder prunes it out of the asar.
    */
-  private resolveDefaultBundledDir(): string {
+  private resolveDefaultBundledDirs(): string[] {
+    // Two roots: strucpp's own shipped archives, plus the editor repo's
+    // `resources/libs/` for first-party archives (robocnc_link) that must
+    // survive an `npm install` — dropping those into node_modules would
+    // lose them on every reinstall.  electron-builder's `extraResources`
+    // copies both into the packaged app.
     if (app.isPackaged) {
-      return join(process.resourcesPath, 'strucpp', 'libs')
+      return [join(process.resourcesPath, 'strucpp', 'libs'), join(process.resourcesPath, 'libs')]
     }
-    return join(app.getAppPath(), 'node_modules', 'strucpp', 'libs')
+    return [join(app.getAppPath(), 'node_modules', 'strucpp', 'libs'), join(app.getAppPath(), 'resources', 'libs')]
   }
 
   // -------------------------------------------------------------------------
@@ -370,28 +375,28 @@ export class LibraryManagerModule {
    *  because the strucpp resources dir doesn't change at runtime. */
   private readBundledArchives(): StlibArchiveDTO[] {
     if (this.bundledArchivesCache) return this.bundledArchivesCache
-    if (!existsSync(this.bundledDir)) {
-      this.bundledArchivesCache = []
-      this.bundledNamesCache = new Set()
-      return []
-    }
-    const entries = readdirSync(this.bundledDir)
-      .filter((f) => f.endsWith('.stlib'))
-      .sort()
     const archives: StlibArchiveDTO[] = []
     const names = new Set<string>()
-    for (const file of entries) {
-      try {
-        const raw = JSON.parse(readFileSync(join(this.bundledDir, file), 'utf-8')) as unknown
-        const archive = this.coerceArchive(raw)
-        if (archive) {
-          archives.push(archive)
-          names.add(archive.manifest.name)
+    for (const dir of this.bundledDirs) {
+      if (!existsSync(dir)) continue
+      const entries = readdirSync(dir)
+        .filter((f) => f.endsWith('.stlib'))
+        .sort()
+      for (const file of entries) {
+        try {
+          const raw = JSON.parse(readFileSync(join(dir, file), 'utf-8')) as unknown
+          const archive = this.coerceArchive(raw)
+          // First dir wins on a name collision, so strucpp's own archives
+          // can't be shadowed by a stray same-named file in resources/libs.
+          if (archive && !names.has(archive.manifest.name)) {
+            archives.push(archive)
+            names.add(archive.manifest.name)
+          }
+        } catch {
+          // Skip malformed bundled archives — surfacing them as a hard
+          // failure here would break startup; the missing entry is
+          // self-evident in the manager UI.
         }
-      } catch {
-        // Skip malformed bundled archives — surfacing them as a hard
-        // failure here would break startup; the missing entry is
-        // self-evident in the manager UI.
       }
     }
     this.bundledArchivesCache = archives

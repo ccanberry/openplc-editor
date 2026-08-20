@@ -1,0 +1,1142 @@
+{
+ "formatVersion": 1,
+ "manifest": {
+  "name": "robocnc_link",
+  "version": "0.1.0",
+  "namespace": "robocnc_link",
+  "functions": [],
+  "functionBlocks": [],
+  "types": [],
+  "globals": [],
+  "headers": [],
+  "isBuiltin": true,
+  "sourceFiles": [],
+  "displayName": "RoboCNC Link",
+  "description": "RoboCNC connection blocks (Modbus :5008 via robocnc_link.h): M/UM handshake, FSM/state, param bank, axis command/status, consolidated NC sync, AIO22 scaling."
+ },
+ "chunks": [],
+ "dependencies": [],
+ "sources": [],
+ "cppBlocks": [
+  {
+   "name": "MCODE",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    ACTIVE = (robocnc_mcode_get((int)N) != 0);\n}",
+   "variables": [
+    {
+     "name": "N",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "ACTIVE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RoboCNC M-code poll: ACTIVE=1 while M<N> pending. The FC1 read is itself the\n   UM<N> ack. EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body\n   on it and never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "MRESET",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    DONE = (robocnc_mcode_reset((int)N) != -1);\n}",
+   "variables": [
+    {
+     "name": "N",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "DONE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RoboCNC M-code reset/ack: releases blocking M<N> / clears latched UM<N>.\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "M_DISPATCH",
+   "code": "#include <robocnc_link.h>\n\n/* FC1 span read of the whole M-coil window. */\nstatic int mdisp_read_coils(int addr, int count, uint8_t *bits /* count/8 bytes */)\n{\n    uint8_t pdu[5] = {0x01, (uint8_t)(addr >> 8), (uint8_t)addr, (uint8_t)(count >> 8),\n                      (uint8_t)count};\n    uint8_t resp[2 + 128 + 8];\n    pthread_mutex_lock(&rcnc_state.lock);\n    int n = rcnc_txn_locked(pdu, sizeof(pdu), resp, sizeof(resp));\n    pthread_mutex_unlock(&rcnc_state.lock);\n    int nbytes = (count + 7) / 8;\n    if (n < 2 + nbytes)\n        return -1;\n    memcpy(bits, resp + 2, nbytes);\n    return 0;\n}\n\nstatic const int mdisp_known[] = {0,   1,   30,  100, 101, 200, 201, 250, 300,\n                                  301, 400, 401, 450, 500, 850, 851, 950, 999};\n\nstatic int mdisp_bit(const uint8_t *bits, int n) { return (bits[n / 8] >> (n % 8)) & 1; }\n\nvoid setup() {}\n\nvoid loop() {\n    uint8_t bits[128];\n    if (mdisp_read_coils(0, 1024, bits) != 0) {\n        LINK_OK = 0;\n        M0 = M1 = M30 = M100 = M101 = M200 = M201 = M250 = 0;\n        M300 = M301 = M400 = M401 = M450 = M500 = M850 = M851 = M950 = M999 = 0;\n        UNKNOWN_M = 0;\n        return;\n    }\n    LINK_OK = 1;\n\n    M0 = mdisp_bit(bits, 0);\n    M1 = mdisp_bit(bits, 1);\n    M30 = mdisp_bit(bits, 30);\n    M100 = mdisp_bit(bits, 100);\n    M101 = mdisp_bit(bits, 101);\n    M200 = mdisp_bit(bits, 200);\n    M201 = mdisp_bit(bits, 201);\n    M250 = mdisp_bit(bits, 250);\n    M300 = mdisp_bit(bits, 300);\n    M301 = mdisp_bit(bits, 301);\n    M400 = mdisp_bit(bits, 400);\n    M401 = mdisp_bit(bits, 401);\n    M450 = mdisp_bit(bits, 450);\n    M500 = mdisp_bit(bits, 500);\n    M850 = mdisp_bit(bits, 850);\n    M851 = mdisp_bit(bits, 851);\n    M950 = mdisp_bit(bits, 950);\n    M999 = mdisp_bit(bits, 999);\n\n    UNKNOWN_M = 0;\n    if (AUTO_ACK) {\n        for (int n = 0; n < 1024; n++) {\n            if (!mdisp_bit(bits, n))\n                continue;\n            int known = 0;\n            for (unsigned k = 0; k < sizeof(mdisp_known) / sizeof(mdisp_known[0]); k++)\n                if (mdisp_known[k] == n) { known = 1; break; }\n            if (!known && UNKNOWN_M == 0)\n                UNKNOWN_M = (IEC_INT)n;\n            /* Z-stage codes stay blocking until the PLC acks them on the\n               limit switch (replaces the dead Eckelmann G152 wait). */\n            if ((n == 450 && HOLD450) || (n == 500 && HOLD500))\n                continue;\n            robocnc_mcode_reset(n); /* quitt */\n        }\n    }\n}",
+   "variables": [
+    {
+     "name": "AUTO_ACK",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": "TRUE",
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "HOLD450",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": "TRUE",
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "HOLD500",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": "TRUE",
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M0",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M1",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M30",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M100",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M101",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M200",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M201",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M250",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M300",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M301",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M400",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M401",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M450",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M500",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M850",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M851",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M950",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "M999",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "UNKNOWN_M",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "LINK_OK",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "M_DISPATCH - one-transaction M/UM coil scan + acknowledge.\n   Replaces the Eckelmann MFKT strobe/quitt handshake (M_BEARBEITUNG_FB):\n   reads the whole RoboCNC M-coil window with a single FC1, pulses one BOOL\n   output per implemented M-code, and (AUTO_ACK) clears each seen coil with\n   FC5 - releasing a blocking M<n> exactly like the original immediate quitt.\n   UM<n> coils are already released by the read itself (:5008 read-detect\n   hook); the FC5 just clears the latch.\n   UNKNOWN_M reports the lowest set coil that is NOT in the implemented set\n   (original raised error 303); it too is acked to avoid deadlocking the\n   .din. Coils scanned: 0..1023.\n   M450/M500 (pneumatic second Z stage) are NOT auto-acked while HOLD450/\n   HOLD500 are TRUE: the caller acks them via MRESET when the stage limit\n   switch confirms - the RoboCNC-native replacement for Eckelmann's G152\n   block-until-in-position (a no-op in current firmware).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "RCNC_AXIS_CMD",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    DONE = (robocnc_write_param_int(3300 + (int)ID, (int)CMD) != -1);\n}",
+   "variables": [
+    {
+     "name": "ID",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "CMD",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "DONE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RoboCNC axis command word (param 3300+ID): 10 enable, 99 disable, 80 stop, 101 move_abs, 100 move_rel.\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "RCNC_AXIS_STATUS",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    STATUS = (IEC_INT)robocnc_read_param_int(900 + (int)ID);\n}",
+   "variables": [
+    {
+     "name": "ID",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "STATUS",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RoboCNC axis status (param 900+ID).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "RCNC_CONNECT",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    robocnc_connect();\n    CONNECTED = (robocnc_is_connected() != 0);\n}",
+   "variables": [
+    {
+     "name": "CONNECTED",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RCNC_CONNECT - open / verify the OpenPLC<->robocnc Modbus link (:5008).\n   Like connectCNC() in the GUIs: call this (via the implicit EN gate) from an\n   init step or a dedicated connection program to establish the link explicitly,\n   instead of relying on the first READ/WRITE_PARAM to connect lazily. CONNECTED\n   reports the live link state so the program can gate on it.\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN in the body."
+  },
+  {
+   "name": "RCNC_MACHINE_STATUS",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    STATUS = (IEC_INT)robocnc_read_param_int(1000);\n    VALID = robocnc_is_connected();\n}",
+   "variables": [
+    {
+     "name": "STATUS",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALID",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RoboCNC MACHINE_STATUS (param 1000): 5=built-wait, 6=ready-built, etc.\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "RCNC_NC_SYNC",
+   "code": "#include <robocnc_link.h>\n\n/* FC3 read of holding registers (the P-bank lives in holding space; the\n   robocnc_read_param_* helpers only do FC4). Same PDU/locking pattern as\n   the header's other helpers. */\nstatic int rcnc_read_holding_span(int addr, int count, uint16_t *out)\n{\n    uint8_t pdu[5] = {0x03, (uint8_t)(addr >> 8), (uint8_t)addr, (uint8_t)(count >> 8),\n                      (uint8_t)count};\n    uint8_t resp[8 + 250];\n    pthread_mutex_lock(&rcnc_state.lock);\n    int n = rcnc_txn_locked(pdu, sizeof(pdu), resp, sizeof(resp));\n    pthread_mutex_unlock(&rcnc_state.lock);\n    if (n < 2 + 2 * count)\n        return -1;\n    for (int i = 0; i < count; i++)\n        out[i] = ((uint16_t)resp[2 + 2 * i] << 8) | resp[3 + 2 * i];\n    return 0;\n}\n\nstatic float span_real(const uint16_t *regs, int base_p, int p)\n{\n    uint32_t bits = ((uint32_t)regs[2 * (p - base_p) + 1] << 16) | regs[2 * (p - base_p)];\n    float out;\n    memcpy(&out, &bits, sizeof(out));\n    return out;\n}\n\n/* P-bank holding address of a writable P parameter (P1024..P2047). */\n#define P_HOLD(p) (4300 + 2 * ((p) - 1024))\n\nvoid setup() {}\n\nvoid loop() {\n    uint16_t regs[64];\n    int ok = 1;\n\n    /* -- machine words 1000..1012 -- */\n    if (rcnc_read_input_regs(1000, 13, regs) == 0) {\n        MACHINE_STATUS = (IEC_INT)(int16_t)regs[0];\n        PROG_NO = (IEC_INT)(int16_t)regs[2];\n        CURRENT_ROW = (IEC_INT)(int16_t)regs[8];\n        PROG_RUNNING = (IEC_BOOL)(regs[10] != 0);\n        MOTION_ACTIVE = (IEC_BOOL)(regs[12] != 0);\n    } else {\n        ok = 0;\n    }\n\n    /* -- axis positions, 7 axes (POSIN 0..13, REAL lo-word-first) -- */\n    if (rcnc_read_input_regs(0, 14, regs) == 0) {\n        float p[7];\n        for (int i = 0; i < 7; i++) {\n            uint32_t bits = ((uint32_t)regs[2 * i + 1] << 16) | regs[2 * i];\n            memcpy(&p[i], &bits, sizeof(float));\n        }\n        POS_AX0 = p[0]; POS_AX1 = p[1]; POS_AX2 = p[2]; POS_AX3 = p[3];\n        POS_AX4 = p[4]; POS_AX5 = p[5]; POS_AX6 = p[6];\n    } else {\n        ok = 0;\n    }\n\n    /* -- axis status masks (900+i: b0 enabled, b1 homed, b2 done, b11 fault) -- */\n    if (rcnc_read_input_regs(900, 7, regs) == 0) {\n        int en = 0, hm = 0, dn = 0, ft = 0;\n        for (int i = 0; i < 7; i++) {\n            if (regs[i] & 0x0001) en |= (1 << i);\n            if (regs[i] & 0x0002) hm |= (1 << i);\n            if (regs[i] & 0x0004) dn |= (1 << i);\n            if (regs[i] & 0x0800) ft |= (1 << i);\n        }\n        ENABLED_MASK = (IEC_INT)en;\n        HOMED_MASK = (IEC_INT)hm;\n        DONE_MASK = (IEC_INT)dn;\n        FAULT_MASK = (IEC_INT)ft;\n    } else {\n        ok = 0;\n    }\n\n    /* -- DIN handshake spans from the writable P-bank (FC3) -- */\n    /* P1700..P1710: 22 regs */\n    if (rcnc_read_holding_span(P_HOLD(1700), 22, regs) == 0) {\n        P1700 = span_real(regs, 1700, 1700);\n        P1702 = span_real(regs, 1700, 1702);\n        P1703 = span_real(regs, 1700, 1703);\n        P1705 = span_real(regs, 1700, 1705);\n        P1710 = span_real(regs, 1700, 1710);\n    } else {\n        ok = 0;\n    }\n    /* P1835..P1837: 6 regs */\n    if (rcnc_read_holding_span(P_HOLD(1835), 6, regs) == 0) {\n        P1835 = span_real(regs, 1835, 1835);\n        P1837 = span_real(regs, 1835, 1837);\n    } else {\n        ok = 0;\n    }\n    /* P2029..P2047: 38 regs */\n    if (rcnc_read_holding_span(P_HOLD(2029), 38, regs) == 0) {\n        P2029 = span_real(regs, 2029, 2029);\n        P2044 = span_real(regs, 2029, 2044);\n        P2046 = span_real(regs, 2029, 2046);\n        P2047 = span_real(regs, 2029, 2047);\n    } else {\n        ok = 0;\n    }\n\n    LINK_OK = (IEC_BOOL)ok;\n}",
+   "variables": [
+    {
+     "name": "LINK_OK",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "MACHINE_STATUS",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "PROG_NO",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "CURRENT_ROW",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "PROG_RUNNING",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "MOTION_ACTIVE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "ENABLED_MASK",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "HOMED_MASK",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "DONE_MASK",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "FAULT_MASK",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "POS_AX0",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "POS_AX1",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "POS_AX2",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "POS_AX3",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "POS_AX4",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "POS_AX5",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "POS_AX6",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P1700",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P1702",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P1703",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P1705",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P1710",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P1835",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P1837",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P2029",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P2044",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P2046",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "P2047",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RCNC_NC_SYNC - consolidated once-per-scan RoboCNC reader for the CONTAHMI port.\n   One instance, called at the TOP of PLC_PRG. Replaces the Eckelmann DPR status\n   window: machine/program state, axis positions + status masks, and the DIN\n   handshake P-parameters the machine logic polls every scan.\n   Register map per RoboCNC docs/reference/plc_contract.md:\n     FC4 input regs : POSIN 0+2*axis (REAL), AXES_STATUS 900+axis,\n                      MACHINE_STATUS 1000, PROG_NO 1002, CURRENT_ROW 1008,\n                      PROGRAM_RUNNING 1010, MOTION_ACTIVE 1012\n     FC3 holding    : P-bank 4300+2*(P-1024) (REAL lo-word-first) for the\n                      DIN handshake spans P1700-1710, P1835-1837, P2029-2047.\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "RCNC_STATE_REQ",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    DONE = (robocnc_write_param_int(2048, (int)REQ) != -1);\n}",
+   "variables": [
+    {
+     "name": "REQ",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "DONE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RoboCNC state-machine request (param 2048): 5 build, 7 run, 12 stop.\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
+   "name": "RCNC_STATUS",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    CONNECTED = (robocnc_is_connected() != 0);\n}",
+   "variables": [
+    {
+     "name": "CONNECTED",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RCNC_STATUS - diagnostics block for connection status"
+  },
+  {
+   "name": "READ_PARAM_DINT",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    VALUE = (IEC_DINT)robocnc_read_param_dint((int)ADDR);\n    VALID = robocnc_is_connected();\n}",
+   "variables": [
+    {
+     "name": "ADDR",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALUE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "DINT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALID",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "READ_PARAM_DINT - reads a DINT parameter from robocnc (FC4, 2 regs).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN in the body. When\n   the caller passes EN := FALSE the body is skipped and the outputs hold."
+  },
+  {
+   "name": "READ_PARAM_INT",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    VALUE = (IEC_INT)robocnc_read_param_int((int)ADDR);\n    VALID = robocnc_is_connected();\n}",
+   "variables": [
+    {
+     "name": "ADDR",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALUE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALID",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "READ_PARAM_INT - reads an INT parameter from robocnc (FC4).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN in the body. When\n   the caller passes EN := FALSE the body is skipped and the outputs hold."
+  },
+  {
+   "name": "READ_PARAM_REAL",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    VALUE = (IEC_REAL)robocnc_read_param_real((int)ADDR);\n    VALID = robocnc_is_connected();\n}",
+   "variables": [
+    {
+     "name": "ADDR",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALUE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALID",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "READ_PARAM_REAL - reads a REAL parameter from robocnc (FC4, 2 regs).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN in the body. When\n   the caller passes EN := FALSE the body is skipped and the outputs hold."
+  },
+  {
+   "name": "WRITE_PARAM_DINT",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    DONE = (robocnc_write_param_dint((int)ADDR, (int32_t)VALUE) != -1);\n}",
+   "variables": [
+    {
+     "name": "ADDR",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALUE",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "DINT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "DONE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "WRITE_PARAM_DINT - writes a DINT parameter to robocnc (FC16, lo-word first).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN in the body."
+  },
+  {
+   "name": "WRITE_PARAM_INT",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    DONE = (robocnc_write_param_int((int)ADDR, (int)VALUE) != -1);\n}",
+   "variables": [
+    {
+     "name": "ADDR",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALUE",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "DONE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "WRITE_PARAM_INT - writes an INT parameter to robocnc (FC6).\n   EN is the implicit IEC 61131-3 enable pin: STruC++ gates this whole body on\n   the call-site EN (`if (EN) { loop(); }`) and does NOT assign a declared EN\n   member. So the body must NOT re-test EN -- a declared `EN : BOOL` here is\n   always false, which made every RCNC POU a permanent no-op."
+  },
+  {
+   "name": "WRITE_PARAM_REAL",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    DONE = (robocnc_write_param_real((int)ADDR, (float)VALUE) != -1);\n}",
+   "variables": [
+    {
+     "name": "ADDR",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VALUE",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "DONE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "WRITE_PARAM_REAL - writes a REAL parameter to robocnc (FC16, lo-word first).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN in the body."
+  }
+ ]
+}

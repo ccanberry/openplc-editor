@@ -158,13 +158,11 @@ export function stlibToSystemLibrary(archive: StlibArchiveDTO): SystemLibrary {
 
   // C/C++ function blocks carried verbatim in `archive.cppBlocks`
   // (strucpp doesn't compile these — the consumer's program build
-  // grafts them into its own C++-POU pipeline).  Each block is
-  // surfaced under the library-prefixed name (`<library>__<name>`)
-  // that the consumer's source code must reference, since the
-  // injection step at compile time uses the same prefix.  The
-  // picker shows the prefix so the user types the right name; the
-  // injection produces a POU with that exact name; everything
-  // resolves cleanly.
+  // grafts them into its own C++-POU pipeline).  Surfaced under the
+  // PLAIN block name, matching `injectLibraryCppBlocks`: library cpp
+  // blocks behave like standard FBs (`inst : WRITE_PARAM_INT;`), so
+  // ST ported from CoDeSys references them unprefixed.  A project POU
+  // with the same name shadows the library copy at compile time.
   type CppBlockVar = {
     name: string
     class?: string
@@ -189,7 +187,7 @@ export function stlibToSystemLibrary(archive: StlibArchiveDTO): SystemLibrary {
       })
     }
     pous.push({
-      name: `${m.name}__${block.name}`,
+      name: block.name,
       type: 'function-block',
       language: 'cpp',
       variables,

@@ -33,6 +33,58 @@ interface CachedArchive {
   }
 }
 
+/**
+ * Give the LSP an interface stub for every `cppBlocks` entry.
+ *
+ * C/C++ blocks are deliberately absent from `manifest.functionBlocks`
+ * (strucpp never compiles them — they ride the archive verbatim and
+ * are grafted into the consumer's C++-POU pipeline at compile time by
+ * `injectLibraryCppBlocks`, under their PLAIN names).  Without a
+ * manifest entry the ST language server flags `inst : RCNC_SYNC;` as
+ * an unknown type even though the build succeeds.  Synthesize the
+ * entries here, on the copy fed to the LSP worker only — the on-disk
+ * archive is untouched, and an author-provided manifest entry with
+ * the same name wins.
+ */
+function withCppBlockStubs(archive: {
+  manifest?: { name?: string; version?: string }
+  [k: string]: unknown
+}): typeof archive {
+  type Pin = { name: string; type: string }
+  type FbEntry = { name: string; inputs: Pin[]; outputs: Pin[]; inouts: Pin[]; documentation: string }
+  type CppVar = { name?: string; class?: string; type?: { value?: string } }
+  type CppBlock = { name?: string; variables?: CppVar[]; documentation?: string }
+
+  const cppBlocks = (archive as { cppBlocks?: CppBlock[] }).cppBlocks
+  if (!cppBlocks || cppBlocks.length === 0) return archive
+
+  const manifest = (archive.manifest ?? {}) as { functionBlocks?: FbEntry[] }
+  const existing = new Set((manifest.functionBlocks ?? []).map((fb) => fb.name.toUpperCase()))
+  const synthesized: FbEntry[] = []
+  for (const block of cppBlocks) {
+    if (!block.name || existing.has(block.name.toUpperCase())) continue
+    const pins = (cls: string): Pin[] =>
+      (block.variables ?? [])
+        .filter((v) => v.class === cls && v.name)
+        .map((v) => ({ name: v.name as string, type: v.type?.value ?? 'BOOL' }))
+    synthesized.push({
+      name: block.name,
+      inputs: pins('input'),
+      outputs: pins('output'),
+      inouts: pins('inOut'),
+      documentation: block.documentation ?? '',
+    })
+  }
+  if (synthesized.length === 0) return archive
+  return {
+    ...archive,
+    manifest: {
+      ...archive.manifest,
+      functionBlocks: [...(manifest.functionBlocks ?? []), ...synthesized],
+    },
+  }
+}
+
 export function createEditorStlibSourceAdapter(): StlibSourcePort {
   /**
    * Per-process cache.  Populated on first `listStlibs` (or after
@@ -59,7 +111,7 @@ export function createEditorStlibSourceAdapter(): StlibSourcePort {
       // anyway.  This is defensive; loadAll() never produces these.
       if (!name || !version) continue
       map.set(name, {
-        json: JSON.stringify(archive),
+        json: JSON.stringify(withCppBlockStubs(archive)),
         manifest: { name, version },
       })
     }

@@ -129,19 +129,28 @@ function injectLibraryCppBlocks(projectData: PLCProjectData, archives: StlibArch
   if (!projectData.libraries || projectData.libraries.length === 0) return projectData
 
   const enabledNames = new Set(projectData.libraries.map((ref) => ref.name))
+  // PLAIN block names, not `<library>__<name>`: the point of a cpp-block
+  // library is CoDeSys-style parity — ported ST calls WRITE_PARAM_INT the
+  // way it calls TON, and a prefixed type name would force every consumer
+  // to rewrite its declarations.  Collisions are handled instead of
+  // prevented: a project POU with the same name WINS and the library copy
+  // is skipped, so a project that still carries its own generated copies
+  // (or deliberately shadows one block) compiles unchanged.
+  const projectPouNames = new Set(projectData.pous.map((p) => p.name.toUpperCase()))
   const synthesized: PLCPou[] = []
 
   for (const archive of archives) {
     if (!archive.cppBlocks || archive.cppBlocks.length === 0) continue
     if (!enabledNames.has(archive.manifest.name)) continue
     for (const block of archive.cppBlocks) {
+      if (projectPouNames.has(block.name.toUpperCase())) continue
       // `variables` rides through the StlibArchiveDTO as `unknown[]`
       // by design — the manifest layer doesn't know our PLCVariable
       // shape.  The on-disk archives are produced by THIS editor's
       // own save pipeline using the same PLCVariable type, so the
       // narrowing here matches reality at runtime.
       synthesized.push({
-        name: `${archive.manifest.name}__${block.name}`,
+        name: block.name,
         pouType: 'function-block',
         interface: { variables: block.variables as PLCVariable[] },
         body: { language: 'cpp', value: block.code },
