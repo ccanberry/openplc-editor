@@ -425,4 +425,22 @@ describe('parseIecStringToVariables', () => {
 
     expect(result[0].class).toBe('input')
   })
+
+  // ---- VAR RETAIN (CoDeSys POU-level retain) ----
+
+  it('flags declarations in a VAR RETAIN section and keeps class local', () => {
+    const input = 'VAR RETAIN\n  Count : INT;\n  Speeds : ARRAY [1..3] OF REAL;\nEND_VAR\nVAR\n  plain : INT;\nEND_VAR'
+    const result = parseIecStringToVariables(input)
+
+    expect(result).toHaveLength(3)
+    expect(result[0]).toMatchObject({ name: 'Count', class: 'local', retain: true })
+    expect(result[1]).toMatchObject({ name: 'Speeds', class: 'local', retain: true })
+    expect(result[2].class).toBe('local')
+    expect('retain' in result[2]).toBe(false)
+  })
+
+  it('is case-insensitive on the RETAIN qualifier', () => {
+    const result = parseIecStringToVariables('var retain\n  x : INT;\nend_var')
+    expect(result[0]).toMatchObject({ name: 'x', class: 'local', retain: true })
+  })
 })

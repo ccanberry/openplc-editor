@@ -602,6 +602,15 @@ async function runCompilePipelineInner(
       globalVariables: processedData.configuration.resource.globalVariables as never,
       debugMapContent: debugMapJson,
       md5,
+      // POU-level `VAR RETAIN` expansion: pass the POU snapshot in the
+      // neutral {name, pouType, variables} shape the step expects.
+      pous: (processedData.pous as Array<{ type: string; data: { name: string; variables?: unknown[] } }>).map(
+        (pou) => ({
+          name: pou.data.name,
+          pouType: pou.type,
+          variables: (pou.data.variables ?? []) as never,
+        }),
+      ),
     })
     for (const warning of retained.warnings) {
       emit({ stage: 'confs', message: warning, level: 'warning' })

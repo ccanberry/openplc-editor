@@ -2,12 +2,22 @@ import type { PLCVariable } from '../../middleware/shared/ports/types'
 
 const classToVarBlock: Record<string, string> = {
   local: 'VAR',
+  // POU-level retained locals (CoDeSys `VAR RETAIN`): own section so the
+  // flag survives the parse -> edit -> save round trip.
+  localRetain: 'VAR RETAIN',
   input: 'VAR_INPUT',
   output: 'VAR_OUTPUT',
   inout: 'VAR_IN_OUT',
   external: 'VAR_EXTERNAL',
   global: 'VAR_GLOBAL',
   temp: 'VAR_TEMP',
+}
+
+/** Group key for a variable: `local` + `retain` gets its own section. */
+const variableGroupKey = (variable: PLCVariable): string => {
+  const cls = (variable.class ?? 'global').toLowerCase()
+  if (cls === 'local' && (variable as { retain?: boolean }).retain === true) return 'localRetain'
+  return cls
 }
 
 // Indentation mirrors xml2st's `PLCGenerator.PouProgramGenerator.GenerateProgram`
@@ -30,7 +40,7 @@ export const generateIecVariablesToString = (variables: PLCVariable[]): string =
 
   const groupedVariables = variables.reduce(
     (acc, variable) => {
-      const key = (variable.class ?? 'global').toLowerCase()
+      const key = variableGroupKey(variable)
 
       if (!acc[key]) {
         acc[key] = []
@@ -42,7 +52,7 @@ export const generateIecVariablesToString = (variables: PLCVariable[]): string =
   )
 
   let textualDeclaration = ''
-  const orderedGroups = ['global', 'external', 'input', 'output', 'inout', 'local', 'temp']
+  const orderedGroups = ['global', 'external', 'input', 'output', 'inout', 'local', 'localRetain', 'temp']
 
   orderedGroups.forEach((groupName) => {
     if (groupedVariables[groupName]) {
@@ -104,7 +114,7 @@ export function getIecVariableLineMap(variables: PLCVariable[]): Map<string, { l
 
   const groupedVariables = variables.reduce(
     (acc, variable) => {
-      const key = (variable.class ?? 'global').toLowerCase()
+      const key = variableGroupKey(variable)
       if (!acc[key]) acc[key] = []
       acc[key].push(variable)
       return acc
@@ -112,7 +122,7 @@ export function getIecVariableLineMap(variables: PLCVariable[]): Map<string, { l
     {} as Record<string, PLCVariable[]>,
   )
 
-  const orderedGroups = ['global', 'external', 'input', 'output', 'inout', 'local', 'temp']
+  const orderedGroups = ['global', 'external', 'input', 'output', 'inout', 'local', 'localRetain', 'temp']
 
   // Variable names start at column `VAR_DECL_INDENT.length + 1`
   // (4 spaces + Monaco's 1-indexed column).

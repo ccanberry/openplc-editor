@@ -90,6 +90,8 @@ export const parseIecStringToVariables = (
   const variables: PLCVariable[] = []
   const lines = iecString.split(/\r?\n/)
   let currentClass: PLCVariable['class'] | null = null
+  // True while inside a `VAR RETAIN` section (CoDeSys POU-level retain).
+  let currentRetain = false
   // Tracks an open (* ... *) comment block spanning multiple lines.
   let inBlockComment = false
 
@@ -114,11 +116,18 @@ export const parseIecStringToVariables = (
     const blockStart = line.match(/^(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_EXTERNAL|VAR_TEMP|VAR_GLOBAL|VAR)\b/i)
     if (blockStart) {
       currentClass = varBlockToClass[blockStart[1].toUpperCase()]
+      // `VAR RETAIN` (CoDeSys POU-level retain): same class as VAR, but
+      // every declaration in the section carries `retain: true` so the
+      // compile pipeline can expand the members into `retain-names.json`
+      // instance paths.  Other qualifiers (CONSTANT, PERSISTENT) are
+      // ignored here as before.
+      currentRetain = blockStart[1].toUpperCase() === 'VAR' && /^VAR\s+RETAIN\b/i.test(line)
       return
     }
 
     if (/^END_VAR\b/i.test(line)) {
       currentClass = null
+      currentRetain = false
       return
     }
 
@@ -162,6 +171,7 @@ export const parseIecStringToVariables = (
         initialValue: initialValue ? initialValue.trim() : null,
         documentation: documentation ? documentation.trim() : '',
         debug: false,
+        ...(currentRetain ? { retain: true } : {}),
       })
       return
     }
@@ -199,6 +209,7 @@ export const parseIecStringToVariables = (
       initialValue: initialValue ? initialValue.trim() : null,
       documentation: documentation ? documentation.trim() : '',
       debug: false,
+      ...(currentRetain ? { retain: true } : {}),
     })
   })
 

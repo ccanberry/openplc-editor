@@ -9,7 +9,7 @@
  * and the unreadable-map warning.
  */
 
-import { collectRetainedGlobals } from '../steps/collect-retained-globals'
+import { collectRetainedGlobals, collectRetainedInstanceSuffixes } from '../steps/collect-retained-globals'
 
 const debugMap = (paths: string[]): string =>
   JSON.stringify({
@@ -135,5 +135,97 @@ describe('collectRetainedGlobals', () => {
       md5: 'deadbeef',
     })
     expect(JSON.parse(result.retainNamesJson).md5).toBe('deadbeef')
+  })
+})
+
+describe('collectRetainedInstanceSuffixes (POU-level VAR RETAIN)', () => {
+  const pous = [
+    {
+      name: 'PLC_PRG',
+      pouType: 'program',
+      variables: [
+        { name: 'maintenance_inst', type: { value: 'MAINTENANCE' } },
+        { name: 'plain', type: { value: 'INT' } },
+      ],
+    },
+    {
+      name: 'MAINTENANCE',
+      pouType: 'function-block',
+      variables: [
+        { name: 'LubricationStartTime', retain: true, type: { value: 'DT' } },
+        { name: 'scratch', type: { value: 'INT' } },
+        { name: 'inner_inst', type: { value: 'INNER' } },
+      ],
+    },
+    {
+      name: 'INNER',
+      pouType: 'function-block',
+      variables: [{ name: 'Count', retain: true, type: { value: 'INT' } }],
+    },
+  ]
+
+  it('derives instance suffixes through nested function blocks', () => {
+    expect(collectRetainedInstanceSuffixes(pous)).toEqual([
+      'MAINTENANCE_INST.LUBRICATIONSTARTTIME',
+      'MAINTENANCE_INST.INNER_INST.COUNT',
+    ])
+  })
+
+  it('returns nothing when no POU flags retain', () => {
+    expect(
+      collectRetainedInstanceSuffixes([
+        { name: 'P', pouType: 'program', variables: [{ name: 'a', type: { value: 'INT' } }] },
+      ]),
+    ).toEqual([])
+  })
+
+  it('survives a POU-type cycle without recursing forever', () => {
+    const cyclic = [
+      { name: 'P', pouType: 'program', variables: [{ name: 'a_inst', type: { value: 'A' } }] },
+      {
+        name: 'A',
+        pouType: 'function-block',
+        variables: [
+          { name: 'kept', retain: true, type: { value: 'INT' } },
+          { name: 'b_inst', type: { value: 'B' } },
+        ],
+      },
+      { name: 'B', pouType: 'function-block', variables: [{ name: 'back', type: { value: 'A' } }] },
+    ]
+    expect(collectRetainedInstanceSuffixes(cyclic)).toEqual(['A_INST.KEPT'])
+  })
+
+  it('expands instance suffixes against INSTANCE-prefixed leaves and warns on misses', () => {
+    const content = JSON.stringify({
+      leaves: [
+        { path: 'GLOBAL_THING' },
+        { path: 'INSTANCE0.MAINTENANCE_INST.LUBRICATIONSTARTTIME' },
+        { path: 'INSTANCE0.MAINTENANCE_INST.INNER_INST.COUNT' },
+        { path: 'INSTANCE1.MAINTENANCE_INST.LUBRICATIONSTARTTIME' },
+      ],
+    })
+    const result = collectRetainedGlobals({
+      globalVariables: [],
+      debugMapContent: content,
+      md5: 'abc123',
+      pous,
+    })
+    expect(result.names).toEqual([
+      'INSTANCE0.MAINTENANCE_INST.LUBRICATIONSTARTTIME',
+      'INSTANCE1.MAINTENANCE_INST.LUBRICATIONSTARTTIME',
+      'INSTANCE0.MAINTENANCE_INST.INNER_INST.COUNT',
+    ])
+    expect(result.warnings).toEqual([])
+  })
+
+  it('warns when a retained POU variable has no leaf under any instance', () => {
+    const result = collectRetainedGlobals({
+      globalVariables: [],
+      debugMapContent: JSON.stringify({ leaves: [{ path: 'INSTANCE0.OTHER' }] }),
+      md5: 'abc123',
+      pous,
+    })
+    expect(result.names).toEqual([])
+    expect(result.warnings).toHaveLength(2)
   })
 })

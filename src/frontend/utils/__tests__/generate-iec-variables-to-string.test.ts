@@ -213,3 +213,22 @@ describe('getIecVariableLineMap', () => {
     expect(map.get('OnlyOne')?.column).toBe(5)
   })
 })
+
+describe('VAR RETAIN round trip (POU-level retained locals)', () => {
+  const vars = [
+    { name: 'plain', class: 'local', type: { definition: 'base-type', value: 'INT' }, location: '', initialValue: null, documentation: '', debug: false },
+    { name: 'Count', class: 'local', retain: true, type: { definition: 'base-type', value: 'INT' }, location: '', initialValue: null, documentation: '', debug: false },
+  ] as never[]
+
+  it('emits retained locals in their own VAR RETAIN section after VAR', () => {
+    const text = generateIecVariablesToString(vars as never)
+    expect(text).toBe('  VAR\n    plain : INT;\n  END_VAR\n  VAR RETAIN\n    Count : INT;\n  END_VAR')
+  })
+
+  it('keeps the line map in lockstep with the emitted sections', () => {
+    const map = getIecVariableLineMap(vars as never)
+    expect(map.get('plain')).toEqual({ line: 2, column: 5 })
+    expect(map.get('Count')).toEqual({ line: 5, column: 5 })
+  })
+})
+

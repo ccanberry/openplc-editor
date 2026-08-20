@@ -39,6 +39,13 @@ export interface RetainGlobalLike {
   retain?: boolean
 }
 
+/** POU snapshot for POU-level `VAR RETAIN` expansion. */
+export interface RetainPouLike {
+  name: string
+  pouType: string
+  variables: Array<{ name: string; retain?: boolean; type?: { value?: unknown } }>
+}
+
 export interface CollectRetainedGlobalsInput {
   /** Resource globals of the compile snapshot (post-publish transform —
    *  the publish step never touches `retain`). */
@@ -48,6 +55,15 @@ export interface CollectRetainedGlobalsInput {
   /** PROGRAM_MD5 — same value `debug-map.json` carries, so the runtime
    *  can refuse a names file that outlived its program. */
   md5: string
+  /** All POUs of the compile snapshot.  Optional: when present, POU
+   *  variables flagged `retain` (parsed from CoDeSys-style `VAR RETAIN`
+   *  sections) are expanded into per-instance debug-map leaf paths
+   *  (`INSTANCE0.MAINTENANCE_INST.LUBRICATIONSTARTTIME`) and retained
+   *  alongside the flagged globals.  The instance tree is derived from
+   *  the POU interfaces (a variable whose type names a function block is
+   *  an instance edge), so every program-reachable instance of an FB
+   *  with retained members contributes its leaves. */
+  pous?: RetainPouLike[]
 }
 
 export interface CollectRetainedGlobalsResult {
@@ -78,16 +94,66 @@ const parseLeafPaths = (debugMapContent: string): string[] | null => {
   }
 }
 
+/**
+ * Instance-path suffixes (`FOO_INST.MEMBER`, upper-cased) of every
+ * POU-level retained variable reachable from a program.  Pure graph
+ * walk over the POU interfaces; cycles guarded (illegal in IEC anyway).
+ */
+export function collectRetainedInstanceSuffixes(pous: RetainPouLike[]): string[] {
+  const byName = new Map<string, RetainPouLike>()
+  for (const pou of pous) byName.set(pou.name.toUpperCase(), pou)
+
+  const memo = new Map<string, string[]>()
+  const walking = new Set<string>()
+
+  // Suffixes contributed by the POU's OWN variables: a retained member
+  // yields its name; an FB-typed member yields that FB's suffixes under
+  // the member's name.
+  const suffixesOf = (pouNameUpper: string): string[] => {
+    const cached = memo.get(pouNameUpper)
+    if (cached) return cached
+    if (walking.has(pouNameUpper)) return []
+    walking.add(pouNameUpper)
+    const pou = byName.get(pouNameUpper)
+    const out: string[] = []
+    for (const variable of pou?.variables ?? []) {
+      const varUpper = variable.name.toUpperCase()
+      if (variable.retain === true) out.push(varUpper)
+      const typeValue = variable.type?.value
+      if (typeof typeValue !== 'string') continue
+      const typeUpper = typeValue.toUpperCase()
+      const inner = byName.get(typeUpper)
+      if (!inner || inner.pouType !== 'function-block') continue
+      for (const suffix of suffixesOf(typeUpper)) out.push(`${varUpper}.${suffix}`)
+    }
+    walking.delete(pouNameUpper)
+    memo.set(pouNameUpper, out)
+    return out
+  }
+
+  const suffixes: string[] = []
+  for (const pou of pous) {
+    if (pou.pouType !== 'program') continue
+    for (const suffix of suffixesOf(pou.name.toUpperCase())) {
+      // Program-level `VAR RETAIN` members surface here too (a bare
+      // member name, no instance segment) — same matching rules apply.
+      if (!suffixes.includes(suffix)) suffixes.push(suffix)
+    }
+  }
+  return suffixes
+}
+
 export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): CollectRetainedGlobalsResult {
   const flagged = input.globalVariables.filter((variable) => variable.retain === true)
+  const instanceSuffixes = collectRetainedInstanceSuffixes(input.pous ?? [])
   const names: string[] = []
   const warnings: string[] = []
 
-  if (flagged.length > 0) {
+  if (flagged.length > 0 || instanceSuffixes.length > 0) {
     const leafPaths = parseLeafPaths(input.debugMapContent)
     if (leafPaths === null) {
       warnings.push(
-        `retain: debug map is missing or unreadable - ${flagged.length} retain declaration(s) skipped this build`,
+        `retain: debug map is missing or unreadable - ${flagged.length + instanceSuffixes.length} retain declaration(s) skipped this build`,
       )
     } else {
       const seen = new Set<string>()
@@ -110,6 +176,32 @@ export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): Coll
           if (seen.has(path)) continue
           seen.add(path)
           names.push(path)
+        }
+      }
+
+      // POU-level `VAR RETAIN`: match each instance suffix under every
+      // program instance prefix (`INSTANCE<n>.`).  strucpp numbers the
+      // program instances itself, so the suffix — derived from the POU
+      // interfaces — is matched against the leaf path with the prefix
+      // stripped, exact or expanded (array element / struct member /
+      // nested FB pins), mirroring the global matching above.
+      for (const suffix of instanceSuffixes) {
+        let matched = false
+        for (const path of leafPaths) {
+          const pathUpper = path.toUpperCase()
+          const prefixMatch = pathUpper.match(/^INSTANCE\d+\./)
+          if (!prefixMatch) continue
+          const rest = pathUpper.slice(prefixMatch[0].length)
+          if (rest !== suffix && !rest.startsWith(`${suffix}[`) && !rest.startsWith(`${suffix}.`)) continue
+          matched = true
+          if (seen.has(path)) continue
+          seen.add(path)
+          names.push(path)
+        }
+        if (!matched) {
+          warnings.push(
+            `retain: POU variable "${suffix}" (VAR RETAIN) has no debug-map leaf under any program instance - not retained`,
+          )
         }
       }
     }
