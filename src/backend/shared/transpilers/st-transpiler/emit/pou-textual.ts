@@ -69,9 +69,14 @@ export function generateTextualPou(pou: TranspilePou, project: TranspileProject,
   }
   program.push(['\n', []])
 
+  // An empty interface is valid IEC (a POU that only reads/writes
+  // globals declares nothing) and CoDeSys v2.3 exports such POUs with
+  // a bare `VAR END_VAR`. The legacy PLCGenerator refused them;
+  // STruC++ accepts them but still requires the empty section, so
+  // emit one instead of nothing.
   const iface = computeInterface(pou.interface.variables)
   if (iface.length === 0) {
-    throw new Error(`No variable defined in "${pou.name}" POU`)
+    program.push(['  VAR\n  END_VAR\n', []])
   }
 
   let varNumber = 0
