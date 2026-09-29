@@ -172,10 +172,27 @@ export function buildRunControlRequest(fc: ModbusFunctionCode): Uint8Array {
   return buf
 }
 
+/**
+ * What a runtime that supports attaching reports beyond the halt state (openplc-runtime
+ * DEBUGGER_DESIGN.md §10). Absent when the runtime answers the original 7-byte STOPINFO.
+ */
+export interface RunControlInfo {
+  /** Run control is on: the loaded program is a debug build and the board allows halting. */
+  enabled: boolean
+  /** The program carries its checkpoint-layout stamp (count + fingerprint). */
+  stamped: boolean
+  /** A breakpoint or a step/pause is armed right now. */
+  armed: boolean
+  checkpointCount: number
+  /** STruC++ `checkpointFingerprint` of the loaded program; compare with the local map's. */
+  fingerprint: number
+}
+
 export interface StopInfoResult {
   success: boolean
   stopped: boolean
   checkpointId: number
+  runControl?: RunControlInfo
   error?: string
 }
 
@@ -194,7 +211,20 @@ export function parseStopInfoResponse(data: Uint8Array): StopInfoResult {
   if (data.length < 7) {
     return { success: false, stopped: false, checkpointId: 0, error: `Incomplete stopinfo (${data.length} bytes, expected 7)` }
   }
-  return { success: true, stopped: readU8(data, 2) !== 0, checkpointId: readU32BE(data, 3) }
+  const base = { success: true, stopped: readU8(data, 2) !== 0, checkpointId: readU32BE(data, 3) }
+  // [7] flags, [8..11] checkpoint count, [12..15] fingerprint -- runtimes since 2026-09-29.
+  if (data.length < 16) return base
+  const flags = readU8(data, 7)
+  return {
+    ...base,
+    runControl: {
+      enabled: (flags & 0x01) !== 0,
+      stamped: (flags & 0x02) !== 0,
+      armed: (flags & 0x04) !== 0,
+      checkpointCount: readU32BE(data, 8),
+      fingerprint: readU32BE(data, 12),
+    },
+  }
 }
 
 /** Parse a control-op ack (respond_short: [FC][status]). */

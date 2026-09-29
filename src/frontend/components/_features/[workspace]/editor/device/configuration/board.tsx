@@ -12,7 +12,9 @@ import { boardSelectors, pinSelectors } from '../../../../../../hooks/use-store-
 import { useOpenPLCStore } from '../../../../../../store'
 import type { RuntimeConnection } from '../../../../../../store/slices/device/types'
 import { cn } from '../../../../../../utils/cn'
+import { resolveDebugBuild } from '../../../../../../utils/debug-attach'
 import { isOpenPLCRuntimeTarget, isSimulatorTarget, validateRuntimeVersion } from '../../../../../../utils/device'
+import { Checkbox } from '../../../../../_atoms/checkbox'
 import { DropdownSearchInput } from '../../../../../_atoms/dropdown-search-input'
 import { Label } from '../../../../../_atoms/label'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../../../../../_atoms/select'
@@ -58,6 +60,8 @@ const Board = memo(function () {
   const runtimeIpAddress = useOpenPLCStore((state) => state.deviceDefinitions.configuration.runtimeIpAddress || '')
   const connectionStatus = useOpenPLCStore((state) => state.runtimeConnection.connectionStatus)
   const setRuntimeIpAddress = useOpenPLCStore((state) => state.deviceActions.setRuntimeIpAddress)
+  const debugBuildChoice = useOpenPLCStore((state) => state.deviceDefinitions.configuration.debugBuild)
+  const setDebugBuild = useOpenPLCStore((state) => state.deviceActions.setDebugBuild)
   const setRuntimeConnectionStatus = useOpenPLCStore((state) => state.deviceActions.setRuntimeConnectionStatus)
   const setRuntimeJwtToken = useOpenPLCStore((state) => state.deviceActions.setRuntimeJwtToken)
   const openModal = useOpenPLCStore((state) => state.modalActions.openModal)
@@ -613,6 +617,23 @@ const Board = memo(function () {
                   <span className='ml-2 text-xs text-red-600 dark:text-red-400'>● Connection failed</span>
                 )}
               </div>
+              {resolveTargetCapabilities(currentBoardInfo).debuggerTransports.length > 0 && (
+                <div id='runtime-debug-build-field' className='flex w-full flex-col items-start justify-start gap-1'>
+                  <Checkbox
+                    id='runtime-debug-build'
+                    label='Upload with debug support (breakpoints)'
+                    checked={resolveDebugBuild(
+                      debugBuildChoice,
+                      resolveTargetCapabilities(currentBoardInfo).debugBuildByDefault,
+                    )}
+                    onCheckedChange={(checked) => setDebugBuild(checked === true)}
+                  />
+                  <p className='text-xs text-neutral-600 dark:text-neutral-400'>
+                    The Debugger can then connect to the running program and set breakpoints without a
+                    download, even after a reboot. Off: a release build, which cannot be halted.
+                  </p>
+                </div>
+              )}
             </>
           ) : capabilities.hasLocalSerialPorts ? (
             <div id='communication-ports-selector' className='flex w-full items-center justify-start gap-1'>

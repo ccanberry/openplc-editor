@@ -4,6 +4,9 @@ const deviceConfigurationSchema = z.object({
   deviceBoard: z.string().default('OpenPLC Simulator'),
   communicationPort: z.string().default(''),
   runtimeIpAddress: z.string().optional(),
+  // Upload with online-debugger support (breakpoints). Absent = the board's default
+  // (`debugBuildByDefault` capability). Mirrored in the other configuration.ts.
+  debugBuild: z.boolean().optional(),
   // Active board's vendor-screen data — the flat view consumers and the
   // compile pipeline read. Always mirrors vendorScreenDataByBoard[deviceBoard].
   vendorScreenData: z.record(z.string(), z.unknown()).optional(),

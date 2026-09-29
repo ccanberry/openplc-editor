@@ -167,6 +167,7 @@
       "debuggerTransports": [
         "websocket"
       ],
+      "debugBuildByDefault": true,
       "pythonFunctionBlocks": false,
       "arduinoApiCompletions": false,
       "hasRuntimeStats": true,

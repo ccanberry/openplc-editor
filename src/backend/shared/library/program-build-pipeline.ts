@@ -35,7 +35,7 @@
  */
 import type * as strucpp from 'strucpp'
 
-import { resolveCheckpointsToPouLocal } from '../utils/PLC/resolve-checkpoints'
+import { CHECKPOINT_FINGERPRINT_FILE, resolveCheckpointsToPouLocal } from '../utils/PLC/resolve-checkpoints'
 import type { KnownPou } from '../utils/PLC/split-program-st'
 import { splitProgramSt } from '../utils/PLC/split-program-st'
 import { enrichErrorWithPouContext, formatErrorWithPouContext } from './program-build-helpers'
@@ -288,6 +288,18 @@ export function runProgramBuildPipeline(opts: ProgramBuildPipelineOptions): Prog
   if (debugCheckpoints && result.checkpoints && result.checkpoints.length > 0) {
     const resolved = resolveCheckpointsToPouLocal(result.checkpoints, split ? split.files : null)
     files.push({ name: 'checkpoint-map.json', content: JSON.stringify(resolved, null, 2) })
+    // The compiled-in identity of this layout (strucpp_debug_map_fingerprint). A debugger
+    // compares it with what the running program reports to attach without redeploying.
+    if (typeof result.checkpointFingerprint === 'number') {
+      files.push({
+        name: CHECKPOINT_FINGERPRINT_FILE,
+        content: JSON.stringify(
+          { checkpointCount: result.checkpoints.length, fingerprint: result.checkpointFingerprint },
+          null,
+          2,
+        ),
+      })
+    }
   }
 
   return {

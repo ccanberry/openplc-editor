@@ -24,6 +24,7 @@ import { executeSaveProject } from '../../../services/save-actions'
 import { useOpenPLCStore } from '../../../store'
 import type { RuntimeConnection } from '../../../store/slices/device/types'
 import { cn } from '../../../utils/cn'
+import { decideAttach, parseCheckpointFingerprint, resolveDebugBuild } from '../../../utils/debug-attach'
 import { logCompilerEvent } from '../../../utils/debugger-session'
 import { getErrorMessage } from '../../../utils/get-error-message'
 import { type BuildOption, BuildOptionsPopover } from '../../_features/[workspace]/build-options'
@@ -33,6 +34,15 @@ import { PlayButton } from '../../_molecules/workspace-activity-bar/default/play
 import { SearchButton } from '../../_molecules/workspace-activity-bar/default/search'
 import { ZoomButton } from '../../_molecules/workspace-activity-bar/default/zoom'
 import { TooltipSidebarWrapperButton } from '../../_molecules/workspace-activity-bar/tooltip-button'
+
+/** Does an upload carry online-debugger support? The project's choice, else the board's default. */
+function projectDebugBuildDefault(): boolean {
+  const state = useOpenPLCStore.getState()
+  const board = state.deviceAvailableOptions.availableBoards.get(state.deviceDefinitions.configuration.deviceBoard)
+  const caps = resolveTargetCapabilities(board)
+  if (caps.isInProcessSimulator) return false
+  return resolveDebugBuild(state.deviceDefinitions.configuration.debugBuild, caps.debugBuildByDefault)
+}
 
 const showDebuggerMessage = (
   type: 'info' | 'warning' | 'error' | 'question',
@@ -161,6 +171,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       compileOnly?: boolean
       cleanBuild?: boolean
       debugCheckpoints?: boolean
+      /** Never stop a running PLC -- for the debugger's compile-only attach probe, which
+       *  must leave the machine exactly as it is. */
+      keepPlcRunning?: boolean
     }): Promise<boolean> => {
       if (isCompiling) return false
 
@@ -211,7 +224,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         )
         const requiresRuntimeConnection = !resolveTargetCapabilities(boardInfo).directUsbUpload
         const { connectionStatus: connStatus, plcStatus: runStatus } = state.runtimeConnection
-        if (requiresRuntimeConnection && connStatus === 'connected' && runStatus === 'RUNNING') {
+        if (
+          !overrides?.keepPlcRunning &&
+          requiresRuntimeConnection &&
+          connStatus === 'connected' &&
+          runStatus === 'RUNNING'
+        ) {
           const response = await showDebuggerMessage(
             'warning',
             'Stop PLC',
@@ -278,7 +296,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             // Debug deploy: instrument the program so the runtime cross-compiles
             // a halt-able `.so` and emits checkpoint-map.json.  Off for normal
             // builds. Set by the debugger's compile-and-deploy path.
-            debugCheckpoints: overrides?.debugCheckpoints ?? false,
+            // Debug support by default where the board asks for it (MCM20.1), so a debugger can
+            // attach to the running program later without a download; the project can opt out.
+            debugCheckpoints: overrides?.debugCheckpoints ?? projectDebugBuildDefault(),
             isSimulator: isSimulatorBoard,
             runtimeIpAddress: deviceDefinitions.configuration.runtimeIpAddress || null,
             runtimeJwtToken: jwtToken || null,
@@ -625,6 +645,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               boardTarget,
               projectPath,
               compileOnly: false,
+              // The session this upload is for needs breakpoints.
+              debugCheckpoints: isRuntimeTarget,
               isSimulator: false,
               runtimeIpAddress,
               runtimeJwtToken,
@@ -771,6 +793,65 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   // Debugger click — full orchestration for non-simulator targets
   // ---------------------------------------------------------------------------
 
+  /**
+   * Attach, deploy, or cancel. Compiles the project's debug build locally (no upload, PLC
+   * untouched), then probes the target over the debug channel: program MD5, run control, and
+   * the checkpoint fingerprint (utils/debug-attach.ts). Asks before any download.
+   */
+  const planDebugConnection = async (
+    projectPath: string,
+    boardTarget: string,
+    debugConfig: DebugConnectionConfig,
+  ): Promise<'attach' | 'deploy' | 'cancel'> => {
+    const { consoleActions } = useOpenPLCStore.getState()
+    const log = (level: 'info' | 'warning', message: string) =>
+      consoleActions.addLog({ id: crypto.randomUUID(), level, message })
+
+    log('info', "Checking whether the target already runs this project's debug build...")
+    const compiled = await handleBuild({ compileOnly: true, debugCheckpoints: true, keepPlcRunning: true })
+    if (!compiled) return 'cancel'
+
+    const md5Result = await debuggerPort.readProgramMd5(projectPath, boardTarget)
+    const mapResult = await debuggerPort.readCheckpointMap(projectPath, boardTarget)
+    const probe: Parameters<typeof decideAttach>[0] = {
+      connected: false,
+      localFingerprint: parseCheckpointFingerprint(mapResult.fingerprintContent),
+    }
+    const conn = await debuggerPort.connect(debugConfig)
+    if (conn.success) {
+      probe.connected = true
+      if (md5Result.success && md5Result.md5) {
+        const verify = await debuggerPort.verifyMd5(md5Result.md5, debugConfig)
+        probe.md5Match = verify.success && verify.match === true
+      }
+      const info = await debuggerPort.getStopInfo()
+      if (info.success) probe.runControl = info.runControl
+      await debuggerPort.disconnect()
+    } else {
+      probe.connectError = conn.error
+    }
+
+    const decision = decideAttach(probe)
+    if (decision.attach) {
+      log('info', "The target runs this project's debug build: attaching without a download.")
+      return 'attach'
+    }
+    log('warning', decision.reason)
+    if (!decision.canDeploy) {
+      await showDebuggerMessage('error', 'Cannot debug this target', decision.reason, ['OK'])
+      return 'cancel'
+    }
+    const response = await showDebuggerMessage(
+      'question',
+      'Download the debug build?',
+      `${decision.reason}\n\nDownload this project with debug support to the target and start debugging? ` +
+        'The PLC program restarts.',
+      ['Download and debug', 'Cancel'],
+      { primaryButtonIndex: 0, dismissButtonIndex: 1 },
+    )
+    return response === 0 ? 'deploy' : 'cancel'
+  }
+
   const handleDebuggerClick = useCallback(async () => {
     // Simulator targets debug through the Start Simulator button
     // (compile + load firmware + connect), so the Debugger button
@@ -821,23 +902,32 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       const isRuntimeTarget = debugConfig.connectionType === 'websocket' || debugConfig.connectionType === 'tcp'
 
       if (isRuntimeTarget) {
-        // Debug deploy (CoDeSys "download"): instrument every statement, upload
-        // to the runtime, cross-compile the halt-able `.so` and deploy it to
-        // the target — THEN connect.  This is what makes GUI breakpoints
-        // actually pause the running program: a normal deploy ships a
-        // checkpoint-free `.so` that run control has nothing to halt on.
-        // Reuses the full build/upload path (pre-build save, stop-PLC prompt,
-        // alias resolution, upload) via `handleBuild`; the checkpoint-map.json
-        // that compile writes next to the build lights the breakpoint gutter.
-        const deployed = await handleBuild({ compileOnly: false, debugCheckpoints: true })
-        if (!deployed) {
-          consoleActions.addLog({
-            id: crypto.randomUUID(),
-            level: 'info',
-            message: 'Debugger session cancelled: debug deploy did not complete.',
-          })
+        // LOGIN WITHOUT DOWNLOAD when the target already runs this project's debug build:
+        // compile it here exactly as a deploy would (the checkpoint maps land in
+        // build/<target>/src) but upload nothing and leave the PLC running, then ask the target
+        // whether it is that program, with run control on and the same checkpoint layout. Only
+        // when it is not does the debugger offer the download -- which restarts the PLC.
+        const plan = await planDebugConnection(projectPath, boardTarget, debugConfig)
+        if (plan === 'cancel') {
+          consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Debugger session cancelled.' })
           setIsDebuggerProcessing(false)
           return
+        }
+        if (plan === 'deploy') {
+          // Debug deploy (CoDeSys "download"): instrument every statement, upload to the
+          // runtime, cross-compile the halt-able `.so` and deploy it to the target -- THEN
+          // connect. Reuses the full build/upload path (pre-build save, stop-PLC prompt,
+          // alias resolution, upload) via `handleBuild`.
+          const deployed = await handleBuild({ compileOnly: false, debugCheckpoints: true })
+          if (!deployed) {
+            consoleActions.addLog({
+              id: crypto.randomUUID(),
+              level: 'info',
+              message: 'Debugger session cancelled: debug deploy did not complete.',
+            })
+            setIsDebuggerProcessing(false)
+            return
+          }
         }
       } else {
         // Local transports (simulator / RTU): instrument the program in the

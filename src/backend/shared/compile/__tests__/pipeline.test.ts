@@ -384,6 +384,28 @@ describe('runCompilePipeline — debug deploy (debugCheckpoints)', () => {
     expect(uploadedBundle['checkpoint-map.json']).toBe('[{"id":0,"pou":"main","line":1}]')
   })
 
+  it('carries checkpoint-fingerprint.json as a debug artefact, for attaching without a download', async () => {
+    const fp = '{"checkpointCount":1,"fingerprint":3735928559}'
+    mockedStrucpp.mockReturnValueOnce({
+      success: true,
+      files: [
+        { name: 'debug-map.json', content: '{"md5":"abc"}' },
+        { name: 'checkpoint-map.json', content: '[{"id":0,"pou":"main","line":1}]' },
+        { name: 'checkpoint-fingerprint.json', content: fp },
+      ],
+      errors: [],
+      warnings: [],
+      md5Hash: 'a'.repeat(32),
+      splitterFallbackMessage: null,
+      debugMapSummary: null,
+    })
+    const port = makePort()
+    const { emit } = captureEvents()
+    const result = await runCompilePipeline({ ...debugV4Args(), compileOnly: true }, port, emit)
+    expect(result.uploaded).toBe(false)
+    expect(result.debugArtifacts?.['checkpoint-fingerprint.json']).toBe(fp)
+  })
+
   it('omits checkpoint-map.json from debugArtifacts when the build produced no checkpoints', async () => {
     // Default mock returns only debug-map.json (no checkpoint-map.json).
     const port = makePort()

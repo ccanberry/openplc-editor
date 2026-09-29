@@ -661,7 +661,7 @@ describe('createWorkspaceSlice', () => {
     expect(store.getState().workspace.debugStoppedCheckpointId).toBeNull()
   })
 
-  it('clearDebugState resets session run-control state but keeps placed breakpoints', () => {
+  it('clearDebugState resets session run-control state, breakpoints included', () => {
     store.getState().workspaceActions.setDebugCheckpointMap([{ id: 0, pou: 'main', line: 10 }])
     store.getState().workspaceActions.setBreakpoints(['main:10'])
     store.getState().workspaceActions.setDebugHalt(true, 0)
@@ -672,7 +672,8 @@ describe('createWorkspaceSlice', () => {
     expect(workspace.debugCheckpointMap).toEqual([])
     expect(workspace.debugHalted).toBe(false)
     expect(workspace.debugStoppedCheckpointId).toBeNull()
-    // Breakpoints intentionally survive a session teardown (CoDeSys-style).
-    expect(workspace.debugBreakpoints).toEqual(['main:10'])
+    // A breakpoint never outlives its session: the next attach must not re-arm it on a
+    // running machine (the PLC itself forgets them on reboot, restart or download).
+    expect(workspace.debugBreakpoints).toEqual([])
   })
 })

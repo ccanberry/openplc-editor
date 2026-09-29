@@ -40,6 +40,15 @@ export interface DebugStopInfo {
   stopped?: boolean
   /** STruC++ checkpoint id the target is halted on (only meaningful when stopped). */
   checkpointId?: number
+  /** Run-control state and the loaded program's checkpoint-layout stamp. Absent from a
+   *  runtime that answers the original 7-byte STOPINFO (before 2026-09-29). */
+  runControl?: {
+    enabled: boolean
+    stamped: boolean
+    armed: boolean
+    checkpointCount: number
+    fingerprint: number
+  }
   error?: string
 }
 
@@ -101,7 +110,13 @@ export interface DebuggerPort {
   readCheckpointMap(
     projectPath: string,
     boardTarget: string,
-  ): Promise<{ success: boolean; content?: string; error?: string }>
+  ): Promise<{
+    success: boolean
+    content?: string
+    /** `checkpoint-fingerprint.json`, when the debug build wrote one. */
+    fingerprintContent?: string
+    error?: string
+  }>
 
   /**
    * Arm the given set of STruC++ checkpoint ids as breakpoints (replaces the

@@ -935,6 +935,12 @@ export interface DeviceConfiguration {
   communicationPort: string
   runtimeIpAddress?: string
   /**
+   * Upload with online-debugger support (breakpoints). Absent = the board's default
+   * (`debugBuildByDefault` capability; true for the MCM20.1). Kept in step with the zod
+   * schemas in types/PLC/devices/configuration.ts (both copies).
+   */
+  debugBuild?: boolean
+  /**
    * Active board's VPP vendor-screen data (backplane modules, IO mappings,
    * Modbus tables, …). This is the flat view every consumer and the compile
    * pipeline read — it always mirrors `vendorScreenDataByBoard[deviceBoard]`.

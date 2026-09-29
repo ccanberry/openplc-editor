@@ -73,6 +73,10 @@ export interface TargetCapabilities {
   /** Which wire protocols the target supports for the debugger. */
   debuggerTransports: DebuggerTransport[]
 
+  /** Uploads carry online-debugger support (breakpoints) unless the project opts out, so a
+   *  debugger can attach to the running program later without a download. */
+  debugBuildByDefault?: boolean
+
   /** Python function blocks compile and run on the target (Runtime
    *  v3 / v4 both support them natively; Simulator compiles them as
    *  no-op stubs; Arduino-CLI targets reject them at build time). */

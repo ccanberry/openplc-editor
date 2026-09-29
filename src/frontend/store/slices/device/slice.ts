@@ -423,6 +423,15 @@ const createDeviceSlice: StateCreator<DeviceSliceRoot, [], [], DeviceSlice> = (s
         }),
       )
     },
+    setDebugBuild: (debugBuild): void => {
+      setState(
+        produce(({ deviceDefinitions, deviceUpdated }: DeviceSlice) => {
+          deviceUpdated.updated = true
+          if (debugBuild === undefined) delete deviceDefinitions.configuration.debugBuild
+          else deviceDefinitions.configuration.debugBuild = debugBuild
+        }),
+      )
+    },
     setRuntimeIpAddress: (ipAddress): void => {
       setState(
         produce(({ deviceDefinitions, runtimeConnection }: DeviceSlice) => {
@@ -617,6 +626,8 @@ function mergeDeviceConfigWithDefaults(
     deviceBoard,
     communicationPort: provided.communicationPort ?? defaults.communicationPort,
     runtimeIpAddress: provided.runtimeIpAddress ?? defaults.runtimeIpAddress,
+    // Only when the project chose; absent means "the board's default".
+    ...(typeof provided.debugBuild === 'boolean' ? { debugBuild: provided.debugBuild } : {}),
     vendorScreenData,
     vendorScreenDataByBoard,
     // Must merge — otherwise loading a project whose configuration.json

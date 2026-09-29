@@ -169,6 +169,12 @@ const createMainWindow = async () => {
     webPreferences: {
       sandbox: true,
       preload: app.isPackaged ? join(__dirname, 'preload.js') : join(__dirname, '../../configs/dll/preload.js'),
+      // KEEP POLLING WHEN MINIMISED. An attached debugger polls the PLC's STOPINFO every
+      // 150 ms, and that poll is what tells the runtime the debugger is still there: after a
+      // few seconds without it the runtime's dead-man clears the breakpoints and releases a
+      // halted task. Chromium throttles a hidden window's timers (to 1/min after 5 minutes),
+      // which would read as "debugger gone" while the operator sits at a breakpoint.
+      backgroundThrottling: false,
     },
   })
 

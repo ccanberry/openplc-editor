@@ -31,6 +31,10 @@ export interface RawCheckpoint {
   startLine: number
 }
 
+/** Sidecar a debug build writes next to checkpoint-map.json: `{ checkpointCount, fingerprint }`,
+ *  the checkpoint-layout identity the running program also reports (STOPINFO). */
+export const CHECKPOINT_FINGERPRINT_FILE = 'checkpoint-fingerprint.json'
+
 /** POU-local checkpoint the editor consumes (matches `DebugCheckpointEntry`). */
 export interface PouLocalCheckpoint {
   id: number

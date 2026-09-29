@@ -33,6 +33,7 @@ import { buildArduinoCliCompileArgs } from '../firmware/build-arduino-cli-args'
 import { describeIncompatibleRuntime, isStrucppCompatibleRuntime } from '../firmware/runtime-version-gate'
 import { buildKnownPous, emitCompileErrorEvents } from '../library/program-build-helpers'
 import { runProgramBuildPipeline } from '../library/program-build-pipeline'
+import { CHECKPOINT_FINGERPRINT_FILE } from '../utils/PLC/resolve-checkpoints'
 import type { DevicePin } from '../types/PLC/devices'
 // PLCProjectData is read from the schema-shape type (singular `configuration`)
 // because that's the runtime shape the editor's pipeline operates on.
@@ -545,6 +546,9 @@ async function runCompilePipelineInner(
         ...(debugMapJson ? { 'debug-map.json': debugMapJson } : {}),
         ...(strucppFilesMap['checkpoint-map.json']
           ? { 'checkpoint-map.json': strucppFilesMap['checkpoint-map.json'] }
+          : {}),
+        ...(strucppFilesMap[CHECKPOINT_FINGERPRINT_FILE]
+          ? { [CHECKPOINT_FINGERPRINT_FILE]: strucppFilesMap[CHECKPOINT_FINGERPRINT_FILE] }
           : {}),
       }
     : undefined

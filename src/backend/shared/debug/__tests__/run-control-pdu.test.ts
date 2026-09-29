@@ -63,6 +63,33 @@ describe('parseStopInfoResponse', () => {
     expect(parseStopInfoResponse(new Uint8Array([0x4b])).success).toBe(false)
   })
 
+  it('parses the 16-byte reply: run-control flags, checkpoint count and fingerprint', () => {
+    const r = parseStopInfoResponse(
+      new Uint8Array([
+        0x4b, ModbusDebugResponse.SUCCESS, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x03, // enabled + stamped, not armed
+        0x00, 0x00, 0x00, 0x58, // 88 checkpoints
+        0xde, 0xad, 0xbe, 0xef, // fingerprint
+      ]),
+    )
+    expect(r).toEqual({
+      success: true,
+      stopped: false,
+      checkpointId: 0,
+      runControl: { enabled: true, stamped: true, armed: false, checkpointCount: 88, fingerprint: 0xdeadbeef },
+    })
+  })
+
+  it('a release build reports run control off and no stamp', () => {
+    const r = parseStopInfoResponse(new Uint8Array([0x4b, ModbusDebugResponse.SUCCESS, 0, 0, 0, 0, 0, 0x00, 0, 0, 0, 0, 0, 0, 0, 0]))
+    expect(r.runControl).toEqual({ enabled: false, stamped: false, armed: false, checkpointCount: 0, fingerprint: 0 })
+  })
+
+  it('the original 7-byte reply carries no runControl', () => {
+    const r = parseStopInfoResponse(new Uint8Array([0x4b, ModbusDebugResponse.SUCCESS, 0x01, 0x00, 0x00, 0x00, 0x07]))
+    expect(r.runControl).toBeUndefined()
+  })
+
   it('rejects a function-code mismatch', () => {
     const r = parseStopInfoResponse(new Uint8Array([0x48, ModbusDebugResponse.SUCCESS, 0x00, 0, 0, 0, 0]))
     expect(r.error).toBe('Function code mismatch')

@@ -48,7 +48,9 @@ import {
   buildSetBreakpointsRequest,
   parseRunControlResponse,
   parseStopInfoResponse,
+  type RunControlInfo,
 } from '../../../backend/shared/debug/modbus-pdu'
+import { CHECKPOINT_FINGERPRINT_FILE } from '../../../backend/shared/utils/PLC/resolve-checkpoints'
 import { WebSocketDebugTransport } from '../../../backend/shared/debug/websocket-debug-transport'
 import { ModbusFunctionCode } from '../../../backend/shared/simulator/types'
 import { SimulatorModule } from '../../../backend/shared/simulator/simulator-module'
@@ -1513,7 +1515,18 @@ class MainProcessBridge implements MainIpcModule {
       // (non-debug) build — the renderer treats that as "no run control".
       const checkpointMapPath = path.resolve(projectPath, 'build', boardTarget, 'src', 'checkpoint-map.json')
       const content = await fs.readFile(checkpointMapPath, 'utf-8')
-      return { success: true, content }
+      // The layout identity next to it (absent before 2026-09-29) -- what attaching compares
+      // with the running program's own report.
+      let fingerprintContent: string | undefined
+      try {
+        fingerprintContent = await fs.readFile(
+          path.resolve(projectPath, 'build', boardTarget, 'src', CHECKPOINT_FINGERPRINT_FILE),
+          'utf-8',
+        )
+      } catch {
+        fingerprintContent = undefined
+      }
+      return { success: true, content, ...(fingerprintContent !== undefined ? { fingerprintContent } : {}) }
     } catch (error) {
       return {
         success: false,
@@ -2019,14 +2032,25 @@ class MainProcessBridge implements MainIpcModule {
 
   handleDebuggerGetStopInfo = async (
     _event: IpcMainInvokeEvent,
-  ): Promise<{ success: boolean; stopped?: boolean; checkpointId?: number; error?: string }> => {
+  ): Promise<{
+    success: boolean
+    stopped?: boolean
+    checkpointId?: number
+    runControl?: RunControlInfo
+    error?: string
+  }> => {
     if (this.debuggerConnectionType === null) {
       return { success: false, error: 'Debugger not connected' }
     }
     try {
       const parsed = parseStopInfoResponse(await this.sendDebugPdu(buildRunControlRequest(ModbusFunctionCode.DEBUG_STOPINFO)))
       if (!parsed.success) return { success: false, error: parsed.error }
-      return { success: true, stopped: parsed.stopped, checkpointId: parsed.checkpointId }
+      return {
+        success: true,
+        stopped: parsed.stopped,
+        checkpointId: parsed.checkpointId,
+        ...(parsed.runControl ? { runControl: parsed.runControl } : {}),
+      }
     } catch (error) {
       return { success: false, error: getErrorMessage(error) }
     }

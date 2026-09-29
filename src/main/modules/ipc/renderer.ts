@@ -390,7 +390,7 @@ const rendererProcessBridge = {
   readCheckpointMap: (
     projectPath: string,
     boardTarget: string,
-  ): Promise<{ success: boolean; content?: string; error?: string }> =>
+  ): Promise<{ success: boolean; content?: string; fingerprintContent?: string; error?: string }> =>
     ipcRenderer.invoke('util:read-checkpoint-map', projectPath, boardTarget),
 
   debuggerVerifyMd5: (
@@ -457,6 +457,13 @@ const rendererProcessBridge = {
     success: boolean
     stopped?: boolean
     checkpointId?: number
+    runControl?: {
+      enabled: boolean
+      stamped: boolean
+      armed: boolean
+      checkpointCount: number
+      fingerprint: number
+    }
     error?: string
   }> => ipcRenderer.invoke('debugger:stopinfo'),
 

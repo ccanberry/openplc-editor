@@ -97,7 +97,7 @@ export function createEditorDebuggerAdapter(): DebuggerPort {
     async readCheckpointMap(
       projectPath: string,
       boardTarget: string,
-    ): Promise<{ success: boolean; content?: string; error?: string }> {
+    ): Promise<{ success: boolean; content?: string; fingerprintContent?: string; error?: string }> {
       try {
         return await window.bridge.readCheckpointMap(projectPath, boardTarget)
       } catch (err) {

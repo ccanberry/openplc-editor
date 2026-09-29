@@ -69,6 +69,8 @@ export function useDebugSession(): UseDebugSessionReturn {
       const projectPath = project.meta.path
 
       logActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Connecting debugger...' })
+      // Every session starts with no breakpoints (see clearDebugState).
+      wsActions.clearBreakpoints()
 
       try {
         const debugFileResult = await debuggerPort.readDebugFile(projectPath, boardTarget)
@@ -232,6 +234,20 @@ export function useDebugSession(): UseDebugSessionReturn {
     // If simulator is running, stop it
     if (simulator.isRunning()) {
       await simulator.stop()
+    }
+
+    // LEAVE THE PLC RUNNING. Closing the debugger used to only disconnect, so a task halted at
+    // a breakpoint stayed halted -- outputs held -- with nothing left to continue it, and armed
+    // breakpoints stayed armed for the next pass. Clear them and continue first. Best effort:
+    // if this does not arrive (the link is already gone), the runtime's dead-man releases the
+    // program a few seconds after the last run-control message.
+    if (useOpenPLCStore.getState().workspace.debugCheckpointMap.length > 0) {
+      try {
+        await debuggerPort.runControl('clear')
+        await debuggerPort.runControl('continue')
+      } catch {
+        // the dead-man covers it
+      }
     }
 
     // Disconnect debugger

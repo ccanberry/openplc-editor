@@ -4,6 +4,9 @@ const deviceConfigurationSchema = z.object({
   deviceBoard: z.string(),
   communicationPort: z.string(),
   runtimeIpAddress: z.string().optional(),
+  // Upload with online-debugger support (breakpoints). Absent = the board's default
+  // (`debugBuildByDefault` capability). Mirrored in the other configuration.ts.
+  debugBuild: z.boolean().optional(),
   vendorScreenData: z.record(z.string(), z.unknown()).optional(),
   // Mirror of backend/shared schema — keep both in sync. See sibling file
   // for the longer explainer; this duplicate exists because the IPC contract

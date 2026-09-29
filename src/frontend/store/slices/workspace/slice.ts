@@ -457,9 +457,12 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
           workspace.debugMd5Mismatch = null
           workspace.debugConnectionType = null
           workspace.debugTargetEndian = 'le'
-          // Session-scoped run-control state resets; placed breakpoints
-          // (debugBreakpoints) persist across sessions like a CoDeSys IDE,
-          // so re-arming on the next connect is automatic.
+          // Session-scoped run-control state resets -- breakpoints included. A breakpoint
+          // never outlives its session: the PLC forgets them on a reboot, a restart or a
+          // download, and an editor that remembered them would re-arm them the moment it
+          // attached, halting a running machine nobody had asked to halt. Each debugger
+          // session starts with none.
+          workspace.debugBreakpoints = []
           workspace.debugCheckpointMap = []
           workspace.debugHalted = false
           workspace.debugStoppedCheckpointId = null
