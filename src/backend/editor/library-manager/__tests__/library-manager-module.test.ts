@@ -304,6 +304,14 @@ describe('LibraryManagerModule', () => {
       expect(result.missing).toEqual([])
     })
 
+    it('an enabled BUNDLED library is present, not missing, and is not loaded twice', () => {
+      writeBundled(makeArchive('robocnc_link'))
+      const mod = makeModule()
+      const result = mod.loadEnabledArchives(['robocnc_link'])
+      expect(result.missing).toEqual([])
+      expect(result.archives.map((a) => a.manifest.name)).toEqual(['robocnc_link'])
+    })
+
     it('returns no archives when the bundled dir is absent and nothing is enabled', () => {
       const mod = makeModule()
       const result = mod.loadEnabledArchives([])

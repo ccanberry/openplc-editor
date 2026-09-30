@@ -182,6 +182,11 @@ export class LibraryManagerModule {
     const registry = this.readRegistry()
     const missing: string[] = []
     for (const name of enabledNames) {
+      // A bundled library ships with the editor and is already in `archives`: enabling it
+      // needs no install (and persistPrepared refuses to install one). Looking only in the
+      // user registry reported robocnc_link -- bundled in resources/libs -- as "not
+      // installed" on every clean profile, so no project using it could compile.
+      if (this.isBundled(name)) continue
       const entry = registry.libraries[name]
       if (!entry) {
         missing.push(name)
