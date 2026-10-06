@@ -12,6 +12,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.4.1',
+    date: '2026-10-06',
+    changes: [
+      'MCM20.1: the editor shows the board\'s real PLC state, read from the board\'s Modbus port without logging in: Stop while it runs, Start/Debug while it is stopped, UNKNOWN when the board cannot be reached.',
+      'MCM20.1: Start and Stop act on the board\'s PLC, with the board password of this connection (still kept in memory only, never saved). Boot autostart stays in RoboStudio.',
+      'MCM20.1: uploading to a running PLC asks once; the upload stops the PLC, loads the new program and starts it again.',
+    ],
+  },
+  {
     version: '1.4.0',
     date: '2026-10-06',
     changes: [

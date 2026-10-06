@@ -591,7 +591,36 @@ class MainProcessBridge implements MainIpcModule {
     }
   }
 
+  /**
+   * Start / Stop on a board the editor holds a board password for (MCM20.1): POST, with the
+   * password in the body, so the runtime acts on the BOARD's PLC instead of its own. The reply's
+   * status is START:OK / STOP:OK, or the reason it did not happen. The password goes in this one
+   * request and nowhere else.
+   */
+  private async boardPlcControl(ipAddress: string, action: 'start' | 'stop', password: string) {
+    const result = await this.makeRuntimeApiPostRequest<{ status?: string }>(
+      ipAddress,
+      `/api/${action}-plc`,
+      JSON.stringify({ board_password: password }),
+      (data: string) => JSON.parse(data) as { status?: string },
+      60_000,
+    )
+    if (!result.success) return { success: false as const, error: result.error }
+    const status = (result.data?.status ?? '').trim()
+    if (!status.includes(`${action.toUpperCase()}:OK`)) {
+      return { success: false as const, error: status.replace(/^[A-Z]+:FAILED\s*/, '') || 'no reply from the board' }
+    }
+    return { success: true as const, status }
+  }
+
   handleRuntimeStartPlc = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    if (this.boardPassword) {
+      try {
+        return await this.boardPlcControl(ipAddress, 'start', this.boardPassword)
+      } catch (error) {
+        return { success: false, error: getErrorMessage(error) }
+      }
+    }
     try {
       // Parse the body so the renderer can drive a retry-on-BUSY
       // loop around `COMMAND:BUSY` replies (the runtime answers BUSY
@@ -612,6 +641,7 @@ class MainProcessBridge implements MainIpcModule {
 
   handleRuntimeStopPlc = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
     try {
+      if (this.boardPassword) return await this.boardPlcControl(ipAddress, 'stop', this.boardPassword)
       return await this.makeRuntimeApiRequest(ipAddress, '/api/stop-plc')
     } catch (error) {
       return { success: false, error: getErrorMessage(error) }
@@ -2070,7 +2100,9 @@ class MainProcessBridge implements MainIpcModule {
       return { success: false, error: 'Debugger not connected' }
     }
     try {
-      const parsed = parseStopInfoResponse(await this.sendDebugPdu(buildRunControlRequest(ModbusFunctionCode.DEBUG_STOPINFO)))
+      const parsed = parseStopInfoResponse(
+        await this.sendDebugPdu(buildRunControlRequest(ModbusFunctionCode.DEBUG_STOPINFO)),
+      )
       if (!parsed.success) return { success: false, error: parsed.error }
       return {
         success: true,

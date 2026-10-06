@@ -230,11 +230,18 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           connStatus === 'connected' &&
           runStatus === 'RUNNING'
         ) {
+          // MCM20.1: the upload's deploy step stops the board's PLC itself and starts it again
+          // with the new program (scripts/deploy-arm9.sh restarts it only if it was running).
+          // Stopping it here first would leave the machine stopped after the upload, so the
+          // editor only asks and leaves the stop and restart to the deploy.
+          const deployRestarts = (state.deviceDefinitions.configuration.deviceBoard || '').startsWith('MCM20.1')
           const response = await showDebuggerMessage(
             'warning',
-            'Stop PLC',
-            'The PLC must be stopped before continuing.',
-            ['Cancel', 'Stop PLC and Continue'],
+            deployRestarts ? 'Upload to a running PLC' : 'Stop PLC',
+            deployRestarts
+              ? 'The PLC on the board is running. The upload stops it, loads the new program and starts it again.'
+              : 'The PLC must be stopped before continuing.',
+            deployRestarts ? ['Cancel', 'Upload'] : ['Cancel', 'Stop PLC and Continue'],
             // Cancel is first (left, neutral); proceed is the blue primary on
             // the right; Escape / click-away routes to Cancel.
             { primaryButtonIndex: 1, dismissButtonIndex: 0 },
@@ -244,6 +251,14 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             setIsCompiling(false)
             return false
           }
+        }
+        if (
+          !(state.deviceDefinitions.configuration.deviceBoard || '').startsWith('MCM20.1') &&
+          !overrides?.keepPlcRunning &&
+          requiresRuntimeConnection &&
+          connStatus === 'connected' &&
+          runStatus === 'RUNNING'
+        ) {
           const stopResult = await runtime.stopPlc()
           if (!stopResult.success) {
             addLog({
