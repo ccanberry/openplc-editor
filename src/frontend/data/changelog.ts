@@ -24,7 +24,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       'Fixed: a scan that ended late lost its %Q writes (outputs stayed set).',
       'Fixed: global and program ARRAY initializers compiled to zeros; IEC counters; POUs with no interface.',
       'Fixed: the :502 slave now drops clients that vanished (keepalive), so ghost connections no longer fill its 4 slots.',
-      'The appliance carries the board runtime (build-arm9), so a new board can be brought up from this PC.',
+      'An upload sends only the PLC program (with its debug map, retained-variable names and source). The PLC runtime on the board is installed by the SD-Card Creator, the PLC configuration by RoboStudio; an upload to a board without them stops and says which tool to use.',
+      'After an upload the PLC is started again only if it was running before; boot autostart is RoboStudio\'s switch and is never changed by an upload.',
     ],
   },
   {
