@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.4.2',
+    date: '2026-10-07',
+    changes: [
+      'An upload to the MCM20.1 also sends the program\'s variable map compressed (about 1 MB -> 50 KB) and its auto-publish map, or removes them: the board (core 1.3.0) serves them to the HMI and RoboStudio, so no PC needs a copy of the project.',
+    ],
+  },
+  {
     version: '1.4.1',
     date: '2026-10-06',
     changes: [
