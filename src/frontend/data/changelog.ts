@@ -25,6 +25,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'Fixed: global and program ARRAY initializers compiled to zeros; IEC counters; POUs with no interface.',
       'Fixed: the :502 slave now drops clients that vanished (keepalive), so ghost connections no longer fill its 4 slots.',
       'An upload sends only the PLC program (with its debug map, retained-variable names and source). The PLC runtime on the board is installed by the SD-Card Creator, the PLC configuration by RoboStudio; an upload to a board without them stops and says which tool to use.',
+      'MCM20.1 board settings: a Board Password field under the IP address. You type the board\'s root password to connect; it is kept in memory for that connection only (never saved in the project or anywhere else) and its sole use is uploading. A wrong one is reported as refused.',
       'After an upload the PLC is started again only if it was running before; boot autostart is RoboStudio\'s switch and is never changed by an upload.',
     ],
   },

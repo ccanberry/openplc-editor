@@ -136,6 +136,15 @@ export function createEditorRuntimeAdapter(getIpAddress: () => string): RuntimeP
       return window.bridge.runtimeClearCredentials()
     },
 
+    async setBoardPassword(password: string) {
+      return window.bridge.runtimeSetBoardPassword(password)
+    },
+
+    async hasBoardPassword() {
+      const r = await window.bridge.runtimeHasBoardPassword()
+      return !!r?.set
+    },
+
     onTokenRefreshed(callback: (newToken: string) => void): Unsubscribe {
       const handler = (_event: unknown, newToken: string) => callback(newToken)
       return window.bridge.onRuntimeTokenRefreshed(handler)

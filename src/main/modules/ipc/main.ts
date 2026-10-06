@@ -78,6 +78,11 @@ class MainProcessBridge implements MainIpcModule {
   // Address of the runtime this session is authenticated against. Captured at
   // login so the token authority can re-authenticate against the same device.
   private runtimeIp: string | null = null
+  /** The board's root password for THIS connection, typed in the board settings (MCM20.1).
+   *  Its only use: an arm9 upload carries it to the runtime for that upload's deploy step.
+   *  Memory only -- never written to the project, the editor's settings or any file; cleared
+   *  on disconnect and gone when the editor closes. */
+  private boardPassword: string | null = null
   // Single token authority for the editor: owns the access token + credentials
   // and the refresh/retry-on-401 logic, shared byte-for-byte with the web app.
   // Every runtime HTTP call (GET, POST, and the project upload) goes through it,
@@ -438,8 +443,17 @@ class MainProcessBridge implements MainIpcModule {
   }): Promise<{ success: true; data: string } | { success: false; error: string }> {
     type UploadResult = { success: true; data: string } | { success: false; error: string; statusCode?: number }
     const boundary = '----WebKitFormBoundary' + Math.random().toString(36).substring(2)
+    // An arm9 upload carries the board password of this connection: the runtime uses it for this
+    // upload's deploy step only (scripts/deploy-arm9.sh) and keeps it nowhere.
+    const pwPart =
+      opts.hwTarget === 'arm9' && this.boardPassword
+        ? `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="board_password"\r\n\r\n` +
+          `${this.boardPassword}\r\n`
+        : ''
     const header = Buffer.from(
-      `--${boundary}\r\n` +
+      pwPart +
+        `--${boundary}\r\n` +
         `Content-Disposition: form-data; name="file"; filename="${opts.filename}"\r\n` +
         `Content-Type: ${opts.contentType}\r\n\r\n`,
     )
@@ -644,8 +658,19 @@ class MainProcessBridge implements MainIpcModule {
   handleRuntimeClearCredentials = (_event: IpcMainInvokeEvent) => {
     this.tokens.clear()
     this.runtimeIp = null
+    this.boardPassword = null
     return { success: true }
   }
+
+  handleRuntimeSetBoardPassword = (_event: IpcMainInvokeEvent, password: string) => {
+    if (typeof password !== 'string' || /[\r\n]/.test(password)) {
+      return { success: false, error: 'the board password cannot contain a line break' }
+    }
+    this.boardPassword = password.length ? password : null
+    return { success: true }
+  }
+
+  handleRuntimeHasBoardPassword = (_event: IpcMainInvokeEvent) => ({ success: true, set: this.boardPassword !== null })
 
   // ===================== RUNTIME LAN DISCOVERY =====================
   private readonly DISCOVERY_PORT = 33333
@@ -939,6 +964,8 @@ class MainProcessBridge implements MainIpcModule {
     this.registerHandle('runtime:get-compilation-status', this.handleRuntimeGetCompilationStatus)
     this.registerHandle('runtime:get-logs', this.handleRuntimeGetLogs)
     this.registerHandle('runtime:clear-credentials', this.handleRuntimeClearCredentials)
+    this.registerHandle('runtime:set-board-password', this.handleRuntimeSetBoardPassword)
+    this.registerHandle('runtime:has-board-password', this.handleRuntimeHasBoardPassword)
     this.registerHandle('runtime:get-serial-ports', this.handleRuntimeGetSerialPorts)
     this.registerHandle('runtime:discover-devices', this.handleRuntimeDiscoverDevices)
 

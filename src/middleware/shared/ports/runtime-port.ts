@@ -159,6 +159,13 @@ export interface RuntimePort {
   /** Clear stored credentials (logout). */
   clearCredentials(): Promise<{ success: boolean }>
 
+  /** The board's root password for this connection (MCM20.1 uploads). Memory only; cleared by
+   *  clearCredentials(). An empty string clears it. */
+  setBoardPassword(password: string): Promise<{ success: boolean; error?: string }>
+
+  /** Whether a board password is set for this connection. */
+  hasBoardPassword(): Promise<boolean>
+
   /**
    * Check if the runtime connection is ready for debug operations.
    * Each adapter implements its own readiness criteria:

@@ -59,6 +59,16 @@ const Board = memo(function () {
 
   const runtimeIpAddress = useOpenPLCStore((state) => state.deviceDefinitions.configuration.runtimeIpAddress || '')
   const connectionStatus = useOpenPLCStore((state) => state.runtimeConnection.connectionStatus)
+
+  // THE BOARD PASSWORD (MCM20.1): the board's root password, typed to connect. It is handed to the
+  // main process for this connection only -- never saved in the project or anywhere else -- and
+  // its sole use is the upload's deploy step. The field is cleared once it is handed over.
+  const needsBoardPassword = (deviceBoard || '').startsWith('MCM20.1')
+  const [boardPassword, setBoardPassword] = useState('')
+  const [boardPasswordSet, setBoardPasswordSet] = useState(false)
+  useEffect(() => {
+    void runtime.hasBoardPassword().then(setBoardPasswordSet)
+  }, [runtime, connectionStatus])
   const setRuntimeIpAddress = useOpenPLCStore((state) => state.deviceActions.setRuntimeIpAddress)
   const debugBuildChoice = useOpenPLCStore((state) => state.deviceDefinitions.configuration.debugBuild)
   const setDebugBuild = useOpenPLCStore((state) => state.deviceActions.setDebugBuild)
@@ -351,12 +361,26 @@ const Board = memo(function () {
       // Disconnect - global polling hook will handle resetting failure counter
       setRuntimeJwtToken(null)
       setRuntimeConnectionStatus('disconnected')
-      await runtime.clearCredentials()
+      await runtime.clearCredentials()   // also forgets the board password
+      setBoardPasswordSet(false)
       return
     }
 
     if (!runtimeIpAddress) {
       return
+    }
+    if (needsBoardPassword) {
+      if (boardPassword) {
+        const r = await runtime.setBoardPassword(boardPassword)
+        if (!r.success) {
+          setRuntimeConnectionStatus('error')
+          return
+        }
+        setBoardPassword('')
+        setBoardPasswordSet(true)
+      } else if (!boardPasswordSet) {
+        return
+      }
     }
 
     setRuntimeConnectionStatus('connecting')
@@ -426,6 +450,9 @@ const Board = memo(function () {
   }, [
     runtime,
     runtimeIpAddress,
+    needsBoardPassword,
+    boardPassword,
+    boardPasswordSet,
     connectionStatus,
     setRuntimeConnectionStatus,
     setRuntimeJwtToken,
@@ -592,11 +619,36 @@ const Board = memo(function () {
                   Search
                 </button>
               </div>
+              {needsBoardPassword && (
+                <div id='runtime-board-password-field' className='flex w-full items-center justify-start gap-1'>
+                  <Label
+                    id='runtime-board-password-label'
+                    className='whitespace-pre text-xs text-neutral-950 dark:text-white'
+                  >
+                    Board Password
+                  </Label>
+                  <input
+                    type='password'
+                    autoComplete='off'
+                    value={boardPassword}
+                    onChange={(e) => setBoardPassword(e.target.value)}
+                    placeholder={
+                      boardPasswordSet
+                        ? 'entered for this connection'
+                        : "the board's root password (needed to upload, never saved)"
+                    }
+                    className='flex h-[30px] min-w-0 flex-1 items-center justify-between gap-1 rounded-md border border-neutral-100 bg-white px-2 py-1 font-caption text-cp-sm font-medium text-neutral-850 outline-none focus:border-brand-medium-dark dark:border-neutral-850 dark:bg-neutral-950 dark:text-neutral-300'
+                  />
+                </div>
+              )}
               <div id='runtime-connect-button-container' className='flex w-full items-center justify-start'>
                 <button
                   type='button'
                   onClick={handleConnectToRuntime}
-                  disabled={connectionStatus === 'connecting'}
+                  disabled={
+                    connectionStatus === 'connecting' ||
+                    (connectionStatus !== 'connected' && needsBoardPassword && !boardPassword && !boardPasswordSet)
+                  }
                   className='h-[30px] rounded-md bg-brand px-4 py-1 font-caption text-cp-sm font-medium text-white hover:bg-brand-medium-dark disabled:opacity-50'
                 >
                   {connectionStatus === 'connecting'

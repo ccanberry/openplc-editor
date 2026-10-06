@@ -523,6 +523,10 @@ const rendererProcessBridge = {
   ): Promise<{ success: boolean; logs?: string | RuntimeLogEntry[]; error?: string }> =>
     ipcRenderer.invoke('runtime:get-logs', ipAddress, minId),
   runtimeClearCredentials: (): Promise<{ success: boolean }> => ipcRenderer.invoke('runtime:clear-credentials'),
+  runtimeSetBoardPassword: (password: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('runtime:set-board-password', password),
+  runtimeHasBoardPassword: (): Promise<{ success: boolean; set: boolean }> =>
+    ipcRenderer.invoke('runtime:has-board-password'),
   runtimeGetSerialPorts: (
     ipAddress: string,
   ): Promise<{ success: boolean; ports?: Array<{ device: string; description?: string }>; error?: string }> =>
