@@ -12,6 +12,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.4.0',
+    date: '2026-10-06',
+    changes: [
+      'Shared-memory link between the PLC and RoboCNC on the board: the PLC runs at 100 Hz beside 1 kHz EtherCAT.',
+      'RoboCard I/O is exchanged once per PLC scan (bus.sync_to_scan, the IEC 61131-3 process image), with a 5 ms reply timeout and predictive receive.',
+      'Per-card window bases (di/do/ai/ao_base) in robocard_config.json; the card protocol is built from the robocard repository.',
+      'Retained variables: POU-level VAR RETAIN and the per-global Retain flag both reach retain-names.json.',
+      'Debugger: attach to a debug build already running on the board; debug uploads by default; a program load starts with no breakpoints.',
+      'On the board the PLC starts only after RoboCNC is serving; a full deploy also ships robocard_tool and program.st.',
+      'Fixed: a scan that ended late lost its %Q writes (outputs stayed set).',
+      'Fixed: global and program ARRAY initializers compiled to zeros; IEC counters; POUs with no interface.',
+      'Fixed: the :502 slave now drops clients that vanished (keepalive), so ghost connections no longer fill its 4 slots.',
+      'The appliance carries the board runtime (build-arm9), so a new board can be brought up from this PC.',
+    ],
+  },
+  {
     version: '1.2.0',
     date: '2026-08-05',
     changes: [
