@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.5.0',
+    date: '2026-10-07',
+    changes: [
+      'Installer: the OpenPLC Runtime + ARM9 toolchain also installs on an older Windows 10 (before 2004, e.g. LTSC 2019 on industrial PCs), which has WSL 1 only. Setup switches on WSL 1 (one UAC prompt, then a restart) and the appliance is registered the way WSL 1 distributions install; before, it tried wsl --install, which that Windows does not have.',
+    ],
+  },
+  {
     version: '1.4.2',
     date: '2026-10-07',
     changes: [
