@@ -100,6 +100,15 @@ const parseLeafPaths = (debugMapContent: string): string[] | null => {
  * walk over the POU interfaces; cycles guarded (illegal in IEC anyway).
  */
 export function collectRetainedInstanceSuffixes(pous: RetainPouLike[]): string[] {
+  return [...retainedSuffixOwners(pous).keys()]
+}
+
+/** Each retained instance suffix with the PROGRAMs whose own interface reaches it, in the
+ *  order collectRetainedInstanceSuffixes lists them.  The owner matters for a program that
+ *  another program CALLS (CODESYS: PLC_PRG calls MAINTENANCE): strucpp publishes such a
+ *  program under its bare name, `MAINTENANCE.LUBRICATIONSTARTTIME`, not under a task
+ *  instance's `INSTANCE<n>.`. */
+function retainedSuffixOwners(pous: RetainPouLike[]): Map<string, string[]> {
   const byName = new Map<string, RetainPouLike>()
   for (const pou of pous) byName.set(pou.name.toUpperCase(), pou)
 
@@ -131,21 +140,25 @@ export function collectRetainedInstanceSuffixes(pous: RetainPouLike[]): string[]
     return out
   }
 
-  const suffixes: string[] = []
+  const owners = new Map<string, string[]>()
   for (const pou of pous) {
     if (pou.pouType !== 'program') continue
-    for (const suffix of suffixesOf(pou.name.toUpperCase())) {
+    const program = pou.name.toUpperCase()
+    for (const suffix of suffixesOf(program)) {
       // Program-level `VAR RETAIN` members surface here too (a bare
       // member name, no instance segment) — same matching rules apply.
-      if (!suffixes.includes(suffix)) suffixes.push(suffix)
+      const list = owners.get(suffix)
+      if (!list) owners.set(suffix, [program])
+      else if (!list.includes(program)) list.push(program)
     }
   }
-  return suffixes
+  return owners
 }
 
 export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): CollectRetainedGlobalsResult {
   const flagged = input.globalVariables.filter((variable) => variable.retain === true)
-  const instanceSuffixes = collectRetainedInstanceSuffixes(input.pous ?? [])
+  const suffixOwners = retainedSuffixOwners(input.pous ?? [])
+  const instanceSuffixes = [...suffixOwners.keys()]
   const names: string[] = []
   const warnings: string[] = []
 
@@ -184,14 +197,18 @@ export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): Coll
       // program instances itself, so the suffix — derived from the POU
       // interfaces — is matched against the leaf path with the prefix
       // stripped, exact or expanded (array element / struct member /
-      // nested FB pins), mirroring the global matching above.
+      // nested FB pins), mirroring the global matching above.  A program
+      // that another program calls is its own single instance, published
+      // under its bare name: its suffixes match under `<PROGRAM>.` too.
       for (const suffix of instanceSuffixes) {
+        const calledPrefixes = (suffixOwners.get(suffix) ?? []).map((program) => `${program}.`)
         let matched = false
         for (const path of leafPaths) {
           const pathUpper = path.toUpperCase()
-          const prefixMatch = pathUpper.match(/^INSTANCE\d+\./)
+          const prefixMatch =
+            pathUpper.match(/^INSTANCE\d+\./)?.[0] ?? calledPrefixes.find((prefix) => pathUpper.startsWith(prefix))
           if (!prefixMatch) continue
-          const rest = pathUpper.slice(prefixMatch[0].length)
+          const rest = pathUpper.slice(prefixMatch.length)
           if (rest !== suffix && !rest.startsWith(`${suffix}[`) && !rest.startsWith(`${suffix}.`)) continue
           matched = true
           if (seen.has(path)) continue
@@ -200,7 +217,7 @@ export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): Coll
         }
         if (!matched) {
           warnings.push(
-            `retain: POU variable "${suffix}" (VAR RETAIN) has no debug-map leaf under any program instance - not retained`,
+            `retain: POU variable "${suffix}" (VAR RETAIN) has no debug-map leaf under any program instance or called program - not retained`,
           )
         }
       }

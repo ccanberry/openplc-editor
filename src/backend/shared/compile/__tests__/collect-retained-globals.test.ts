@@ -218,6 +218,43 @@ describe('collectRetainedInstanceSuffixes (POU-level VAR RETAIN)', () => {
     expect(result.warnings).toEqual([])
   })
 
+  it('retains a called PROGRAM\'s VAR RETAIN under the program\'s bare name', () => {
+    // CODESYS: PLC_PRG calls MAINTENANCE(); strucpp publishes it as MAINTENANCE.<VAR>
+    const called = [
+      { name: 'PLC_PRG', pouType: 'program', variables: [{ name: 'plain', type: { value: 'INT' } }] },
+      {
+        name: 'MAINTENANCE',
+        pouType: 'program',
+        variables: [
+          { name: 'LubricationStartTime', retain: true, type: { value: 'DT' } },
+          { name: 'ctu_Count', retain: true, type: { value: 'CTU' } },
+          { name: 'scratch', type: { value: 'INT' } },
+        ],
+      },
+    ]
+    const result = collectRetainedGlobals({
+      globalVariables: [],
+      debugMapContent: JSON.stringify({
+        leaves: [
+          { path: 'INSTANCE0.PLAIN' },
+          { path: 'MAINTENANCE.LUBRICATIONSTARTTIME' },
+          { path: 'MAINTENANCE.CTU_COUNT.CV' },
+          { path: 'MAINTENANCE.CTU_COUNT.PV' },
+          { path: 'MAINTENANCE.SCRATCH' },
+          { path: 'OTHER.LUBRICATIONSTARTTIME' },
+        ],
+      }),
+      md5: 'abc123',
+      pous: called,
+    })
+    expect(result.names).toEqual([
+      'MAINTENANCE.LUBRICATIONSTARTTIME',
+      'MAINTENANCE.CTU_COUNT.CV',
+      'MAINTENANCE.CTU_COUNT.PV',
+    ])
+    expect(result.warnings).toEqual([])
+  })
+
   it('warns when a retained POU variable has no leaf under any instance', () => {
     const result = collectRetainedGlobals({
       globalVariables: [],
