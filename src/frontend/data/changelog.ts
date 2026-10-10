@@ -12,6 +12,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.6.0',
+    date: '2026-10-10',
+    changes: [
+      'A PROGRAM may call another PROGRAM, as in CODESYS: the called program is its own single instance, published under its name (ALARMS.count). Refused, with a compile error: a called program that also runs on a task, and one with located variables.',
+      'A called PROGRAM\'s VAR RETAIN variables are retained under the program\'s name (MAINTENANCE.LubricationStartTime).',
+      'Programs build 4-5 times faster (Cubotonic for the MCM20.1: 24 s -> 5 s; the program file 5.9 MB -> 1 MB), and an MCM20.1 upload no longer also builds and starts a copy of the program on this PC.',
+      'An MCM20.1 upload moves a retained value to the new name a variable got (INSTANCE0.X_INST.v -> X.v when a POU became a PROGRAM again), so counters and calibrations keep their values; the board keeps the file as it was in persist/retain.json.before-rename.',
+      'OpenPLC Suite starts with no console window.',
+    ],
+  },
+  {
     version: '1.5.0',
     date: '2026-10-07',
     changes: [
