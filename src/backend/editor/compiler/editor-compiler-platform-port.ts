@@ -77,7 +77,6 @@ import type { CompilerModule } from './compiler-module'
  */
 const hwTargetForBoard = (board: string | undefined): string | undefined => {
   if (!board) return undefined
-  if (board.startsWith('Local')) return 'native-linux'
   if (board.startsWith('MCM20.1')) return 'arm9'
   return undefined
 }

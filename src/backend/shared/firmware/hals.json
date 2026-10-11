@@ -198,56 +198,5 @@
       "Deploy": "Cross-compiled via dev-box runtime (set-target.sh arm9 + AUTO_DEPLOY)",
       "Python Blocks": "Not available on target"
     }
-  },
-  "Local (this PC)": {
-    "compiler": "openplc-compiler",
-    "preview": "generic.png",
-    "cxx_flags": [
-      "-std=gnu++17"
-    ],
-    "capabilities": {
-      "pinMapping": false,
-      "vppIo": false,
-      "modbusTcpRemote": true,
-      "ethercat": false,
-      "modbusTcpServer": false,
-      "opcuaServer": false,
-      "s7Server": false,
-      "debuggerTransports": [
-        "websocket"
-      ],
-      "pythonFunctionBlocks": false,
-      "arduinoApiCompletions": false,
-      "hasRuntimeStats": true,
-      "isInProcessSimulator": false,
-      "directUsbUpload": false
-    },
-    "debug": {
-      "preconditions": [
-        "runtimeConnected",
-        "jwtToken"
-      ],
-      "channels": [
-        {
-          "label": "Modbus TCP (local runtime :5020)",
-          "channel": "tcp",
-          "enabledWhen": true,
-          "params": {
-            "ipAddress": {
-              "$ref": "configuration.runtimeIpAddress",
-              "required": "Runtime IP address is not configured."
-            }
-          }
-        }
-      ]
-    },
-    "specs": {
-      "CPU": "This PC (x86-64) \u2014 no realtime",
-      "OS": "Host Linux / WSL2",
-      "I/O Bus": "RoboCard cards SIMULATED (loopback); the RS-485 port is never opened",
-      "CNC Link": "RoboCNC Modbus TCP to 127.0.0.1:5008 (a locally running robocnc)",
-      "Deploy": "Native build into the local OpenPLC root \u2014 no cross pass, nothing sent to the board",
-      "Simulation": "FULL: every axis and every DAQ card. Following error, EtherCAT cycle timing, DAQ throughput, drive faults, homing and card degradation are NOT represented \u2014 those stay bench-only."
-    }
   }
 }
