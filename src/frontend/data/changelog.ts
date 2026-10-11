@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.7.0',
+    date: '2026-10-11',
+    changes: [
+      'One board: the "Local (this PC)" board is gone, programs go to the MCM20.1. Without a board a program still compiles on this PC; to rehearse it without the machine\'s hardware, use SIM mode in RoboStudio RT 1.2.0.',
+    ],
+  },
+  {
     version: '1.6.0',
     date: '2026-10-10',
     changes: [
