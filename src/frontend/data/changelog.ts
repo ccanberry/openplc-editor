@@ -17,6 +17,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'The OpenPLC Suite opens full-screen (F11 leaves it).',
       'Global variables: the group buttons are filters. Pressing one or more shows only the variables of those groups, and a pressed button is plainly lit (it used to hide the group and dim the button). "Remove all filters" shows everything again.',
+      'The runtime\'s default login is now "robotek": the Suite moves an appliance that still has the old "openplc" account over the next time it starts.',
     ],
   },
   {
