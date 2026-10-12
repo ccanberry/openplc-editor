@@ -12,6 +12,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.7.2',
+    date: '2026-10-12',
+    changes: [
+      'The Suite\'s runtime only compiles and uploads: it starts no PLC runtime on this PC, so no 10 ms cycle, no plugins and no port 502 here -- a program runs only on the board. (An older runtime of this PC ran a copy of the program next to the one on the board, which could starve the PC and cost the connection to the board.)',
+      'An older runtime appliance is brought up to this Suite\'s version the next time the Suite starts, with its settings (board address, plugin lists) kept. The installer used to leave an existing appliance as it was.',
+    ],
+  },
+  {
     version: '1.7.1',
     date: '2026-10-12',
     changes: [
