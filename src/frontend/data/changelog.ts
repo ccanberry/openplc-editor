@@ -12,6 +12,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.8.0',
+    date: '2026-10-12',
+    changes: [
+      'Login (was Debugger): connects to the running program without a download whenever it is this project, release build or debug build, and shows the live values. Breakpoints are on when the board runs this project\'s debug build; otherwise the console says why they are off. Only a different program asks for a download.',
+      'While logged in, any change to the project lights Build/Upload: the PLC runs an older program than the one on screen until it is uploaded.',
+      'A list as the initial value of one value -- 116,5 typed for 116.5 in a REAL -- is one error at that variable, with the fix ("write 116.5"). It used to pass the ST compiler and break every C++ file of the program at once.',
+      'Faster uploads: the board is reached over one ssh connection for the whole upload instead of about fifteen (each cost the board ~0.7 s), and only the files that changed are compiled again (an upload of an unchanged program compiles in 0.2 s instead of 6.6 s; a resource value change compiles one file).',
+    ],
+  },
+  {
     version: '1.7.2',
     date: '2026-10-12',
     changes: [

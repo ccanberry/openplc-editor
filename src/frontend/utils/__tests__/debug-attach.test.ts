@@ -11,71 +11,68 @@ const rc = (over: Partial<{ enabled: boolean; stamped: boolean; armed: boolean; 
 const local = { checkpointCount: 88, fingerprint: 0xdeadbeef }
 
 describe('decideAttach', () => {
-  it('attaches when program, run control and checkpoint layout all match', () => {
+  it('logs in with breakpoints when program, run control and checkpoint layout all match', () => {
     expect(decideAttach({ connected: true, md5Match: true, runControl: rc(), localFingerprint: local })).toEqual({
       attach: true,
+      breakpoints: true,
     })
   })
 
-  it('does not attach to an unreachable target, but a download may still work', () => {
+  it('does not log in to an unreachable target, but a download may still work', () => {
     const d = decideAttach({ connected: false, connectError: 'ECONNREFUSED' })
     expect(d).toMatchObject({ attach: false, canDeploy: true })
     if (!d.attach) expect(d.reason).toContain('ECONNREFUSED')
   })
 
-  it('does not attach to a different program', () => {
+  it('does not log in to a different program', () => {
     expect(decideAttach({ connected: true, md5Match: false, runControl: rc(), localFingerprint: local })).toMatchObject(
       { attach: false, canDeploy: true },
     )
   })
 
-  it('does not attach when the runtime predates the STOPINFO extension', () => {
+  it('a runtime that predates the STOPINFO extension: values only', () => {
     expect(decideAttach({ connected: true, md5Match: true, localFingerprint: local })).toMatchObject({
-      attach: false,
-      canDeploy: true,
+      attach: true,
+      breakpoints: false,
     })
   })
 
-  it('a release build of the same program is not attachable (same MD5, no run control)', () => {
+  it('a release build of the same program: values only, said so', () => {
     const d = decideAttach({
       connected: true,
       md5Match: true,
       runControl: rc({ enabled: false, stamped: false, checkpointCount: 0, fingerprint: 0 }),
       localFingerprint: local,
     })
-    expect(d).toMatchObject({ attach: false, canDeploy: true })
-    if (!d.attach) expect(d.reason).toMatch(/release build/)
+    expect(d).toMatchObject({ attach: true, breakpoints: false })
+    if (d.attach) expect(d.note).toMatch(/release build/)
   })
 
-  it('breakpoints switched off on the machine: a download cannot help', () => {
-    const d = decideAttach({
-      connected: true,
-      md5Match: true,
-      runControl: rc({ enabled: false }),
-      localFingerprint: local,
-    })
-    expect(d).toMatchObject({ attach: false, canDeploy: false })
-    if (!d.attach) expect(d.reason).toContain('OPENPLC_RUN_CONTROL=0')
+  it('breakpoints switched off on the machine: values only', () => {
+    const d = decideAttach({ connected: true, md5Match: true, runControl: rc({ enabled: false }), localFingerprint: local })
+    expect(d).toMatchObject({ attach: true, breakpoints: false })
+    if (d.attach) expect(d.note).toContain('OPENPLC_RUN_CONTROL=0')
   })
 
-  it('an unstamped (older) debug build cannot be verified', () => {
+  it('an unstamped (older) debug build: values only', () => {
     expect(
       decideAttach({ connected: true, md5Match: true, runControl: rc({ stamped: false }), localFingerprint: local }),
-    ).toMatchObject({ attach: false, canDeploy: true })
+    ).toMatchObject({ attach: true, breakpoints: false })
   })
 
-  it('a different checkpoint layout (another compiler) is refused, fingerprint or count', () => {
+  it('a different checkpoint layout (another compiler): values only, fingerprint or count', () => {
     expect(
       decideAttach({ connected: true, md5Match: true, runControl: rc({ fingerprint: 0x12345678 }), localFingerprint: local }),
-    ).toMatchObject({ attach: false, canDeploy: true })
+    ).toMatchObject({ attach: true, breakpoints: false })
     expect(
       decideAttach({ connected: true, md5Match: true, runControl: rc({ checkpointCount: 87 }), localFingerprint: local }),
-    ).toMatchObject({ attach: false, canDeploy: true })
+    ).toMatchObject({ attach: true, breakpoints: false })
   })
 
-  it('no local fingerprint is refused', () => {
+  it('no local fingerprint: values only', () => {
     expect(decideAttach({ connected: true, md5Match: true, runControl: rc(), localFingerprint: null })).toMatchObject({
-      attach: false,
+      attach: true,
+      breakpoints: false,
     })
   })
 })

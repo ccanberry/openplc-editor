@@ -112,6 +112,13 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
   const [isCompiling, setIsCompiling] = useState(false)
   const [isDebuggerProcessing, setIsDebuggerProcessing] = useState(false)
+  // Whether this login may arm breakpoints: false when the target runs this program as a release
+  // build (or one whose checkpoint numbering is not this project's) -- live values only.
+  const loginBreakpointsRef = useRef(true)
+  // CHANGED SINCE LOGIN: any edit made while logged in means the PLC runs an older program than
+  // the one on screen, so Build/Upload is lit until it is uploaded (or the session ends).
+  const [changedSinceLogin, setChangedSinceLogin] = useState(false)
+  const loginDataRef = useRef<unknown>(null)
   const [simulatorRunning, setSimulatorRunning] = useState(false)
   const pendingSimulatorDebugRef = useRef(false)
 
@@ -120,6 +127,19 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const jwtToken = useOpenPLCStore((state) => state.runtimeConnection.jwtToken)
   const isDebuggerVisible = useOpenPLCStore((state) => state.workspace.isDebuggerVisible)
   const canEdit = useOpenPLCStore((state) => state.workspace.canEdit)
+
+  useEffect(() => {
+    if (!isDebuggerVisible) {
+      loginDataRef.current = null
+      setChangedSinceLogin(false)
+      return
+    }
+    if (loginDataRef.current === null) {
+      loginDataRef.current = projectData
+      return
+    }
+    if (projectData !== loginDataRef.current) setChangedSinceLogin(true)
+  }, [isDebuggerVisible, projectData])
 
   const currentBoardInfo = availableBoards.get(deviceDefinitions.configuration.deviceBoard)
   const isSimulatorBoard = resolveTargetCapabilities(currentBoardInfo).isInProcessSimulator
@@ -376,6 +396,11 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       } finally {
         setIsCompiling(false)
       }
+      // Uploaded while logged in: the PLC runs what is on screen again.
+      if (buildOk && !overrides?.compileOnly) {
+        loginDataRef.current = useOpenPLCStore.getState().project.data
+        setChangedSinceLogin(false)
+      }
       return buildOk
     },
     [
@@ -562,7 +587,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           ['Yes', 'No'],
         )
         if (response === 1) {
-          consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Debugger session cancelled.' })
+          consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Login cancelled.' })
           setIsDebuggerProcessing(false)
           return
         }
@@ -632,7 +657,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         // `'le'` when the trailer was missing or malformed (older
         // runtimes); detectTargetEndian already logged a warning.
         useOpenPLCStore.getState().workspaceActions.setDebugTargetEndian(verifyResult.targetEndian ?? 'le')
-        await debugSession.connectAndStart(debugConfig)
+        await debugSession.connectAndStart(debugConfig, { breakpoints: loginBreakpointsRef.current })
         setIsDebuggerProcessing(false)
       } else {
         // Disconnect before re-upload; the recursive call will reconnect
@@ -669,6 +694,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             (event) => logCompilerEvent(event, consoleActions.addLog),
           )
           if (compileResult.success) {
+            loginBreakpointsRef.current = isRuntimeTarget
             consoleActions.addLog({
               id: crypto.randomUUID(),
               level: 'info',
@@ -817,12 +843,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     projectPath: string,
     boardTarget: string,
     debugConfig: DebugConnectionConfig,
-  ): Promise<'attach' | 'deploy' | 'cancel'> => {
+  ): Promise<'attach' | 'monitor' | 'deploy' | 'cancel'> => {
     const { consoleActions } = useOpenPLCStore.getState()
     const log = (level: 'info' | 'warning', message: string) =>
       consoleActions.addLog({ id: crypto.randomUUID(), level, message })
 
-    log('info', "Checking whether the target already runs this project's debug build...")
+    log('info', 'Login: checking whether the target runs this program...')
     const compiled = await handleBuild({ compileOnly: true, debugCheckpoints: true, keepPlcRunning: true })
     if (!compiled) return 'cancel'
 
@@ -848,8 +874,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
     const decision = decideAttach(probe)
     if (decision.attach) {
-      log('info', "The target runs this project's debug build: attaching without a download.")
-      return 'attach'
+      if (decision.breakpoints) {
+        log('info', "The target runs this project's debug build: logging in without a download, breakpoints on.")
+        return 'attach'
+      }
+      log('info', `The target runs this program: logging in without a download. ${decision.note ?? ''}`)
+      return 'monitor'
     }
     log('warning', decision.reason)
     if (!decision.canDeploy) {
@@ -858,10 +888,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     }
     const response = await showDebuggerMessage(
       'question',
-      'Download the debug build?',
-      `${decision.reason}\n\nDownload this project with debug support to the target and start debugging? ` +
+      'Login: download the program?',
+      `${decision.reason}\n\nDownload this project (with breakpoint support) to the target and log in? ` +
         'The PLC program restarts.',
-      ['Download and debug', 'Cancel'],
+      ['Download and log in', 'Cancel'],
       { primaryButtonIndex: 0, dismissButtonIndex: 1 },
     )
     return response === 0 ? 'deploy' : 'cancel'
@@ -923,8 +953,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         // whether it is that program, with run control on and the same checkpoint layout. Only
         // when it is not does the debugger offer the download -- which restarts the PLC.
         const plan = await planDebugConnection(projectPath, boardTarget, debugConfig)
+        loginBreakpointsRef.current = plan !== 'monitor'
         if (plan === 'cancel') {
-          consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Debugger session cancelled.' })
+          consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Login cancelled.' })
           setIsDebuggerProcessing(false)
           return
         }
@@ -938,7 +969,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             consoleActions.addLog({
               id: crypto.randomUUID(),
               level: 'info',
-              message: 'Debugger session cancelled: debug deploy did not complete.',
+              message: 'Login cancelled: the download did not complete.',
             })
             setIsDebuggerProcessing(false)
             return
@@ -1014,8 +1045,15 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         <>
           <BuildOptionsPopover
             disabled={isCompiling || isSimulatorBoard}
+            attention={changedSinceLogin}
             triggerTooltip={
-              isSimulatorBoard ? 'Use Start to build and run' : isCompiling ? 'Compiling…' : 'Build options'
+              isSimulatorBoard
+                ? 'Use Start to build and run'
+                : isCompiling
+                  ? 'Compiling…'
+                  : changedSinceLogin
+                    ? 'Changed since login: build and upload to put it on the PLC'
+                    : 'Build options'
             }
             // Direct-USB targets (every arduino-cli board, simulator)
             // always allow upload — arduino-cli connects via USB at
@@ -1078,7 +1116,15 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               {(isSimulatorBoard ? simulatorRunning : plcStatus === 'RUNNING') ? <StopIcon /> : null}
             </PlayButton>
           </TooltipSidebarWrapperButton>
-          <TooltipSidebarWrapperButton tooltipContent={isSimulatorBoard ? 'Use Start to debug' : 'Debugger'}>
+          <TooltipSidebarWrapperButton
+            tooltipContent={
+              isSimulatorBoard
+                ? 'Use Start to debug'
+                : isDebuggerVisible
+                  ? 'Logout'
+                  : 'Login: live values of the running program (and breakpoints on a debug build)'
+            }
+          >
             <DebuggerButton
               onClick={() => void handleDebuggerClick()}
               disabled={isDebuggerProcessing || isSimulatorBoard}

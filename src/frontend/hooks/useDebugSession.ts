@@ -36,7 +36,11 @@ export interface UseDebugSessionReturn {
    * @param config — Connection target (simulator, TCP, RTU, WebSocket).
    *                 If omitted, defaults to simulator.
    */
-  connectAndStart: (config?: DebugConnectionConfig) => Promise<{ success: boolean; error?: string }>
+  /** opts.breakpoints false = live values only (no checkpoint map is loaded, so none is armed). */
+  connectAndStart: (
+    config?: DebugConnectionConfig,
+    opts?: { breakpoints?: boolean },
+  ) => Promise<{ success: boolean; error?: string }>
 
   /** Disconnect from the debug target and clear all debug state. */
   stopSession: () => Promise<void>
@@ -62,7 +66,10 @@ export function useDebugSession(): UseDebugSessionReturn {
   const debugTreesRef = useRef<Record<string, DebugTreeNode[]>>({})
 
   const connectAndStart = useCallback(
-    async (config?: DebugConnectionConfig): Promise<{ success: boolean; error?: string }> => {
+    async (
+      config?: DebugConnectionConfig,
+      opts?: { breakpoints?: boolean },
+    ): Promise<{ success: boolean; error?: string }> => {
       const debugConfig = config ?? ({ connectionType: 'simulator', connectionParams: {} } as DebugConnectionConfig)
       const { project, workspaceActions: wsActions, consoleActions: logActions } = useOpenPLCStore.getState()
       const boardTarget = deviceDefinitions.configuration.deviceBoard
@@ -86,7 +93,19 @@ export function useDebugSession(): UseDebugSessionReturn {
         // debugCheckpoints build.  Best-effort — a normal build has no
         // checkpoint-map.json, so run control just stays inert.
         try {
-          const checkpointResult = await debuggerPort.readCheckpointMap(projectPath, boardTarget)
+          // VALUES ONLY: the target runs this program as a release build (or with another
+          // checkpoint numbering), so no breakpoint may be armed from the local map.
+          const checkpointResult =
+            opts?.breakpoints === false
+              ? { success: false as const, content: undefined }
+              : await debuggerPort.readCheckpointMap(projectPath, boardTarget)
+          if (opts?.breakpoints === false) {
+            logActions.addLog({
+              id: crypto.randomUUID(),
+              level: 'info',
+              message: 'Logged in: live values. Breakpoints are off for this program on the target.',
+            })
+          }
           if (checkpointResult.success && checkpointResult.content) {
             const checkpoints = parseCheckpointMap(checkpointResult.content)
             wsActions.setDebugCheckpointMap(checkpoints)

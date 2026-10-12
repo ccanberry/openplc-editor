@@ -1,17 +1,18 @@
 /**
- * Attach to a PLC that already runs this project's debug build — no download, no restart.
+ * LOGIN: attach to the PLC that runs this project, with no download and no restart.
  *
  * The CoDeSys "login without download": on site, days after the last deploy and after any
- * number of reboots, connect and set a breakpoint. Three things must hold, and the program
- * MD5 alone proves only the first:
+ * number of reboots, connect and watch the program run. What is shown depends on what runs:
  *
- *   1. the target runs THIS program (MD5 of the ST source matches);
- *   2. it is a debug build and the machine allows halting (STOPINFO `runControl.enabled`);
- *   3. its checkpoint numbering is the one our local map uses (STruC++ fingerprint).
+ *   1. the target runs THIS program (MD5 of the ST source matches) -> LOGIN, live values,
+ *      whatever kind of build it is (release or debug: one source, one MD5, one variable map);
+ *   2. ...and it is a debug build with run control on (STOPINFO `runControl.enabled`) whose
+ *      checkpoint numbering is the one our local map uses (STruC++ fingerprint) -> breakpoints
+ *      too. Otherwise breakpoints stay off -- arming ids from the wrong map would halt the
+ *      program on the wrong statement, or never -- and the reason is said.
  *
- * (2) and (3) exist because a release and a debug build of one program share an MD5, and so
- * can two compiler versions that number checkpoints differently — arming ids from the wrong
- * map halts the program on the wrong statement, or never. Pure; no IPC, no store.
+ * Only a DIFFERENT program (or no answer) refuses the login; then a download is offered.
+ * Pure; no IPC, no store.
  */
 import type { DebugStopInfo } from '../../middleware/shared/ports/debugger-port'
 
@@ -34,10 +35,16 @@ export interface AttachProbe {
 }
 
 export type AttachDecision =
-  | { attach: true }
+  | {
+      attach: true
+      /** Breakpoints can be armed: a debug build with this project's checkpoint layout. */
+      breakpoints: boolean
+      /** Why breakpoints are off, when they are. */
+      note?: string
+    }
   | {
       attach: false
-      /** False when a download cannot help (breakpoints are switched off on the machine). */
+      /** False when a download cannot help. */
       canDeploy: boolean
       reason: string
     }
@@ -70,60 +77,44 @@ export function decideAttach(p: AttachProbe): AttachDecision {
       reason: 'The target is running a different program, or a different version of this one.',
     }
   }
+  // The program matches: login, live values. Breakpoints only when they can be trusted.
+  const valuesOnly = (note: string): AttachDecision => ({ attach: true, breakpoints: false, note })
   const rc = p.runControl
   if (!rc) {
-    return {
-      attach: false,
-      canDeploy: true,
-      reason:
-        "The target's runtime does not report whether its program can be halted (it predates " +
-        'attach support), so breakpoints cannot be verified without a download.',
-    }
+    return valuesOnly(
+      "The target's runtime does not report whether its program can be halted (it predates attach " +
+        'support): live values only, no breakpoints.',
+    )
   }
   if (!rc.enabled && rc.stamped) {
-    return {
-      attach: false,
-      canDeploy: false,
-      reason:
-        'The target runs a debug build, but breakpoints are switched off on this machine ' +
-        '(OPENPLC_RUN_CONTROL=0 in its openplc service). A download would not change that.',
-    }
+    return valuesOnly(
+      'The target runs a debug build, but breakpoints are switched off on this machine ' +
+        '(OPENPLC_RUN_CONTROL=0 in its openplc service): live values only.',
+    )
   }
   if (!rc.enabled) {
-    return {
-      attach: false,
-      canDeploy: true,
-      reason: 'The target runs a release build of this program: it cannot be halted at a breakpoint.',
-    }
+    return valuesOnly(
+      'The target runs a release build of this program: live values only. Download a debug build for breakpoints.',
+    )
   }
   if (!rc.stamped) {
-    return {
-      attach: false,
-      canDeploy: true,
-      reason:
-        "The target's debug build predates checkpoint fingerprints, so its breakpoint numbering " +
-        'cannot be checked against this project.',
-    }
+    return valuesOnly(
+      "The target's debug build predates checkpoint fingerprints, so its breakpoint numbering cannot be " +
+        'checked against this project: live values only.',
+    )
   }
   const local = p.localFingerprint
   if (!local) {
-    return {
-      attach: false,
-      canDeploy: true,
-      reason: "This project's debug build produced no checkpoint fingerprint to compare with the target's.",
-    }
+    return valuesOnly("This project's debug build produced no checkpoint fingerprint to compare with: live values only.")
   }
   if (local.fingerprint !== rc.fingerprint >>> 0 || local.checkpointCount !== rc.checkpointCount) {
-    return {
-      attach: false,
-      canDeploy: true,
-      reason:
-        `The target's debug build numbers its breakpoints differently (target ${rc.checkpointCount} ` +
+    return valuesOnly(
+      `The target's debug build numbers its breakpoints differently (target ${rc.checkpointCount} ` +
         `checkpoints, map ${hex(rc.fingerprint)}; this project ${local.checkpointCount}, ` +
-        `${hex(local.fingerprint)}). It was compiled by a different editor version.`,
-    }
+        `${hex(local.fingerprint)}): it was compiled by a different editor version. Live values only.`,
+    )
   }
-  return { attach: true }
+  return { attach: true, breakpoints: true }
 }
 
 /**

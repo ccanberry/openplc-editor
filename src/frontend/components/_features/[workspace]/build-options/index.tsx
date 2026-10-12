@@ -27,6 +27,8 @@ type BuildOptionsPopoverProps = {
    * popover stays a single component).
    */
   libraryMode?: boolean
+  /** Lit: the project has changed since the login, so the PLC runs an older program. */
+  attention?: boolean
   onSelect: (option: BuildOption) => void
 }
 
@@ -86,6 +88,7 @@ export const BuildOptionsPopover = ({
   uploadAvailable,
   uploadDisabledReason,
   libraryMode,
+  attention,
   onSelect,
 }: BuildOptionsPopoverProps): ReactNode => {
   const [open, setOpen] = useState(false)
@@ -107,7 +110,11 @@ export const BuildOptionsPopover = ({
                 <ActivityBarButton
                   aria-label='Build options'
                   disabled={disabled}
-                  className={cn(disabled && 'cursor-not-allowed opacity-50 [&>*:first-child]:hover:bg-transparent')}
+                  data-attention={attention ? 'true' : undefined}
+                  className={cn(
+                    disabled && 'cursor-not-allowed opacity-50 [&>*:first-child]:hover:bg-transparent',
+                    attention && !disabled && 'rounded-md bg-amber-400/25 ring-2 ring-amber-400',
+                  )}
                 >
                   {isNineties ? <RetroBuild /> : <DownloadIcon />}
                 </ActivityBarButton>
