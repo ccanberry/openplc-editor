@@ -12,6 +12,11 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.7.1',
+    date: '2026-10-12',
+    changes: ['The OpenPLC Suite opens full-screen (F11 leaves it).'],
+  },
+  {
     version: '1.7.0',
     date: '2026-10-11',
     changes: [

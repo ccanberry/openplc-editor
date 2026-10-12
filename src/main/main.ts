@@ -206,6 +206,10 @@ const createMainWindow = async () => {
       throw new Error('"mainWindow" is not defined')
     }
     mainWindow.maximize()
+    // STARTS FULL-SCREEN (F11 leaves it, back to the maximised window).
+    if (!process.env.START_MINIMIZED) {
+      mainWindow.setFullScreen(true)
+    }
     if (process.env.START_MINIMIZED) {
       mainWindow.minimize()
     }
