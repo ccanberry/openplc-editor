@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.9.1',
+    date: '2026-10-12',
+    changes: [
+      'Online change holds the PLC for no more than a scan: with core 1.7.1 on the board the switch no longer stops every task for ~0.4 s while the retained variables are re-attached (measured with Cubotonic on the MCM20.1). The PLC appliance is brought up to core 1.7.1 at the next start.',
+    ],
+  },
+  {
     version: '1.9.0',
     date: '2026-10-12',
     changes: [
