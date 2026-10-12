@@ -127,7 +127,8 @@ export function deriveVariableIndexMap(treeMap: Map<string, DebugTreeNode>, map:
  * builder consumes. `index` carries the packed (arr<<16|elem) address.
  */
 export function debugMapToEntries(map: DebugMap): DebugVariableEntry[] {
-  return map.leaves.map((leaf) => ({
+  // A library block's hidden internals are for the online change, not for the variable tree.
+  return map.leaves.filter((leaf) => !leaf.hidden).map((leaf) => ({
     name: leaf.path,
     type: `${leaf.type}_ENUM`,
     index: packDebugAddr(leaf),

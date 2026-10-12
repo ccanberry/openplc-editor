@@ -119,6 +119,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   // the one on screen, so Build/Upload is lit until it is uploaded (or the session ends).
   const [changedSinceLogin, setChangedSinceLogin] = useState(false)
   const loginDataRef = useRef<unknown>(null)
+  // The Login handler, for the re-login after an online change (defined further down).
+  const reloginRef = useRef<(() => Promise<void>) | null>(null)
   const [simulatorRunning, setSimulatorRunning] = useState(false)
   const pendingSimulatorDebugRef = useRef(false)
 
@@ -194,6 +196,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       /** Never stop a running PLC -- for the debugger's compile-only attach probe, which
        *  must leave the machine exactly as it is. */
       keepPlcRunning?: boolean
+      /** ONLINE CHANGE: the board swaps its running program for this build at a scan
+       *  boundary, keeping every variable's value. Nothing is stopped. */
+      onlineChange?: boolean
     }): Promise<boolean> => {
       if (isCompiling) return false
 
@@ -246,6 +251,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         const { connectionStatus: connStatus, plcStatus: runStatus } = state.runtimeConnection
         if (
           !overrides?.keepPlcRunning &&
+          !overrides?.onlineChange &&
           requiresRuntimeConnection &&
           connStatus === 'connected' &&
           runStatus === 'RUNNING'
@@ -275,6 +281,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         if (
           !(state.deviceDefinitions.configuration.deviceBoard || '').startsWith('MCM20.1') &&
           !overrides?.keepPlcRunning &&
+          !overrides?.onlineChange &&
           requiresRuntimeConnection &&
           connStatus === 'connected' &&
           runStatus === 'RUNNING'
@@ -328,6 +335,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             // `handleBuild()` with no overrides also get an upload.
             compileOnly: overrides?.compileOnly ?? false,
             cleanBuild: overrides?.cleanBuild ?? false,
+            onlineChange: overrides?.onlineChange ?? false,
             // Debug deploy: instrument the program so the runtime cross-compiles
             // a halt-able `.so` and emits checkpoint-map.json.  Off for normal
             // builds. Set by the debugger's compile-and-deploy path.
@@ -400,6 +408,16 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       if (buildOk && !overrides?.compileOnly) {
         loginDataRef.current = useOpenPLCStore.getState().project.data
         setChangedSinceLogin(false)
+      }
+      // After an online change the running program is a new build (a new MD5 and variable
+      // map): log in to it again, which reads the new map -- no download, nothing stopped.
+      if (buildOk && overrides?.onlineChange && useOpenPLCStore.getState().workspace.isDebuggerVisible) {
+        addLog({ id: crypto.randomUUID(), level: 'info', message: 'Online change done: logging in to the new program...' })
+        void (async () => {
+          await debugSession.stopSession()
+          await new Promise((resolve) => setTimeout(resolve, 300))
+          void reloginRef.current?.()
+        })()
       }
       return buildOk
     },
@@ -1024,6 +1042,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     resolveDebugConfigWithUx,
     handleBuild,
   ])
+  reloginRef.current = handleDebuggerClick
 
   // ---------------------------------------------------------------------------
   // JSX
@@ -1046,6 +1065,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           <BuildOptionsPopover
             disabled={isCompiling || isSimulatorBoard}
             attention={changedSinceLogin}
+            onlineChangeAvailable={isDebuggerVisible && !isSimulatorBoard}
             triggerTooltip={
               isSimulatorBoard
                 ? 'Use Start to build and run'
@@ -1083,6 +1103,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
                   break
                 case 'clean-upload':
                   void handleBuild({ compileOnly: false, cleanBuild: true })
+                  break
+                case 'online-change':
+                  void handleBuild({ compileOnly: false, onlineChange: true })
                   break
               }
             }}

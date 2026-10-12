@@ -436,6 +436,8 @@ class MainProcessBridge implements MainIpcModule {
     filename: string
     contentType: string
     cleanBuild: boolean
+    /** Online change: the board replaces its running program without stopping. */
+    onlineChange?: boolean
     /** Hardware target for THIS upload: 'native-linux' | 'arm9'. Omitted leaves the
      *  runtime's scripts/target.conf in charge, which is what older editors do. */
     hwTarget?: string
@@ -465,6 +467,7 @@ class MainProcessBridge implements MainIpcModule {
     // scp'd to the ARM9. Per-upload also keeps two concurrent uploads independent.
     const params = new URLSearchParams()
     if (opts.cleanBuild) params.set('clean', '1')
+    if (opts.onlineChange) params.set('online', '1')
     if (opts.hwTarget) params.set('hw', opts.hwTarget)
     const query = params.toString()
     const path = query ? `/api/upload-file?${query}` : '/api/upload-file'

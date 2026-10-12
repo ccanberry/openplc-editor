@@ -12,6 +12,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.9.0',
+    date: '2026-10-12',
+    changes: [
+      'Online change (Build options, while logged in): the board replaces its running program with the new build at a scan boundary, without stopping -- no output drop, no fieldbus restart. Every variable keeps its value (new ones start at their initial value), running timers and edge detectors included; the Suite then logs in to the new program by itself. Refused, with the old program running on, when the tasks changed (a task added, removed, or its interval or priority) -- then use Build and upload. Needs core 1.7.0 on the board.',
+      'The ST compiler keeps a library block\'s internal state (a timer\'s start time, an edge detector\'s memory) in the program\'s variable map, hidden from the variable tree, so an online change can carry it.',
+    ],
+  },
+  {
     version: '1.8.0',
     date: '2026-10-12',
     changes: [

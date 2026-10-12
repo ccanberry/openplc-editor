@@ -58,6 +58,9 @@ export interface CompileProgramArgs {
    *  default — a normal Build/Upload stays checkpoint-free.  Set only by the
    *  debug session's compile-and-deploy path. */
   debugCheckpoints?: boolean
+  /** ONLINE CHANGE (logged in): the board replaces its running program at a scan boundary
+   *  without stopping, carrying every variable across by name (runtime online_change.h). */
+  onlineChange?: boolean
 }
 
 export interface DebugCompileArgs {

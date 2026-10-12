@@ -119,6 +119,8 @@ export interface EditorCompilerPlatformPortContext {
   /** Whether the user requested a clean rebuild (drives arduino-cli's
    *  `--clean` flag). */
   cleanBuild: boolean
+  /** Online change: the board replaces its running program without stopping. */
+  onlineChange?: boolean
   /** Bridge methods for runtime API calls (compile-status poll, etc.). */
   mainProcessBridge: {
     makeRuntimeApiRequest: <T = void>(
@@ -135,6 +137,7 @@ export interface EditorCompilerPlatformPortContext {
       filename: string
       contentType: string
       cleanBuild: boolean
+      onlineChange?: boolean
       hwTarget?: string
       onUploadAccepted?: (responseBody: string) => void
     }) => Promise<{ success: true; data: string } | { success: false; error: string }>
@@ -406,6 +409,7 @@ export function createEditorCompilerPlatformPort(
               contentType: 'application/zip',
               fileBuffer,
               cleanBuild: context.cleanBuild,
+              onlineChange: context.onlineChange ?? false,
               hwTarget: hwTargetForBoard(context.boardTarget),
               onUploadAccepted: (responseBody) => {
                 try {
@@ -507,6 +511,7 @@ export function createEditorCompilerPlatformPort(
               contentType: 'text/plain',
               fileBuffer,
               cleanBuild: context.cleanBuild,
+              onlineChange: context.onlineChange ?? false,
               hwTarget: hwTargetForBoard(context.boardTarget),
               onUploadAccepted: (responseBody) => {
                 try {

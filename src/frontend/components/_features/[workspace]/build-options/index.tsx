@@ -8,7 +8,7 @@ import { ActivityBarButton } from '../../../_atoms/buttons/activity-bar'
 import { RetroBuild } from '../../../_atoms/retro-icons'
 import { SidebarTooltipContent, Tooltip, TooltipProvider, TooltipTrigger } from '../../../_atoms/tooltip'
 
-export type BuildOption = 'build-only' | 'build-upload' | 'clean-upload'
+export type BuildOption = 'build-only' | 'build-upload' | 'clean-upload' | 'online-change'
 
 type BuildOptionsPopoverProps = {
   /** Disables the trigger button entirely (e.g. compile-in-progress, simulator selected). */
@@ -29,6 +29,8 @@ type BuildOptionsPopoverProps = {
   libraryMode?: boolean
   /** Lit: the project has changed since the login, so the PLC runs an older program. */
   attention?: boolean
+  /** Logged in to the running program: offer the online change (no stop). */
+  onlineChangeAvailable?: boolean
   onSelect: (option: BuildOption) => void
 }
 
@@ -89,6 +91,7 @@ export const BuildOptionsPopover = ({
   uploadDisabledReason,
   libraryMode,
   attention,
+  onlineChangeAvailable,
   onSelect,
 }: BuildOptionsPopoverProps): ReactNode => {
   const [open, setOpen] = useState(false)
@@ -173,6 +176,13 @@ export const BuildOptionsPopover = ({
                 disabled={!uploadAvailable}
                 disabledReason={uploadDisabledReason}
                 onClick={() => choose('clean-upload')}
+              />
+              <OptionRow
+                label='Online change'
+                description='Replace the running program without stopping it: every variable keeps its value.'
+                disabled={!uploadAvailable || !onlineChangeAvailable}
+                disabledReason={!uploadAvailable ? uploadDisabledReason : 'log in to the running program first'}
+                onClick={() => choose('online-change')}
               />
             </>
           )}

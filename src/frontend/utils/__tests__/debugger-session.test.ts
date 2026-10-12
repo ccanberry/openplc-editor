@@ -221,6 +221,17 @@ function addr(arrayIdx: number, elemIdx: number): number {
   return packDebugAddr({ arrayIdx, elemIdx })
 }
 
+describe('debugMapToEntries', () => {
+  it('leaves out a library block\'s hidden internals', () => {
+    const map = makeMap([
+      { path: 'INSTANCE0.T.Q', type: 'BOOL', size: 1 },
+      { path: 'INSTANCE0.T.START_TIME', type: 'TIME', size: 8 },
+    ])
+    map.leaves[1]!.hidden = true
+    expect(debugMapToEntries(map).map((e) => e.name)).toEqual(['INSTANCE0.T.Q'])
+  })
+})
+
 describe('deriveVariableIndexMap', () => {
   // The index map is now DERIVED from the debug tree (the single enumeration
   // walk) rather than a parallel walk — so these tests drive the real flow:

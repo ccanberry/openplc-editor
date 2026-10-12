@@ -250,6 +250,8 @@ export function createEditorCompilerAdapter(): CompilerPort {
             // cross-compiled `.so` is halt-able by run control.  Off for normal
             // builds (invariant: production deploys carry no checkpoints).
             args.debugCheckpoints ?? false,
+            // Online change: replace the running program without stopping it.
+            args.onlineChange ?? false,
           ],
           (data: Record<string, unknown>) => {
             // Extract simulator firmware path BEFORE the closePort early return,

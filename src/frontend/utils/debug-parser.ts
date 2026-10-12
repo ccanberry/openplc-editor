@@ -19,6 +19,9 @@ export interface DebugMapLeaf {
   path: string
   type: string
   size: number
+  /** A library block's internal state (TON.START_TIME): in the map so an online change
+   *  can carry it, never shown to the user. */
+  hidden?: boolean
 }
 
 export interface DebugMap {

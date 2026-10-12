@@ -2419,6 +2419,7 @@ class CompilerModule {
         filename: string
         contentType: string
         cleanBuild: boolean
+        onlineChange?: boolean
       hwTarget?: string
         onUploadAccepted?: (responseBody: string) => void
       }) => Promise<{ success: true; data: string } | { success: false; error: string }>
@@ -2447,6 +2448,7 @@ class CompilerModule {
       communicationPort,
       vendorScreenData,
       debugCheckpoints,
+      onlineChange,
     ] = args as [
       string,
       string,
@@ -2458,6 +2460,7 @@ class CompilerModule {
       boolean | undefined,
       string | null | undefined,
       Record<string, unknown> | undefined,
+      boolean | undefined,
       boolean | undefined,
     ]
 
@@ -2671,6 +2674,7 @@ class CompilerModule {
         boardCore,
         boardHalsContent: halsContent[boardTarget],
         cleanBuild: cleanBuild ?? false,
+        onlineChange: onlineChange ?? false,
         mainProcessBridge,
         compressSourceFolder: (folderPath: string) => this.compressSourceFolder(folderPath),
         pollTimeoutMs: CompilerModule.COMPILATION_STATUS_TIMEOUT_MS,
