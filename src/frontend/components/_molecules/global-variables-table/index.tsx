@@ -1,10 +1,12 @@
 import { ColumnFiltersState, createColumnHelper, OnChangeFn } from '@tanstack/react-table'
+import { useEffect, useMemo } from 'react'
 
 import type { PLCGlobalVariable } from '../../../../middleware/shared/ports/types'
 import { HMI_PUBLISH_DEFAULT_GROUP } from '../../../../middleware/shared/utils/hmi-publish'
 import { usePouSnapshot } from '../../../hooks/use-pou-snapshot'
 import { useOpenPLCStore } from '../../../store'
 import { GenericTable } from '../../_atoms/generic-table'
+import { LiveValueCell } from '../../_features/[workspace]/forcing/live-value-cell'
 import {
   EditableDocumentationCell,
   EditableGroupCell,
@@ -98,6 +100,18 @@ const columns = [
   }),
 ]
 
+/** While logged in: the live value; a click prepares it (F7 forces, Ctrl+F7 writes). A global's
+ *  debug-map path is its name in upper case. */
+const liveColumn = columnHelper.display({
+  id: 'liveValue',
+  header: 'Value',
+  size: 180,
+  minSize: 96,
+  maxSize: 300,
+  enableResizing: true,
+  cell: (props) => <LiveValueCell variableKey={props.row.original.name.toUpperCase()} />,
+})
+
 type PLCVariablesTableProps = {
   tableData: PLCGlobalVariable[]
   selectedRow: number
@@ -122,10 +136,21 @@ const GlobalVariablesTable = ({
   } = useOpenPLCStore()
 
   const { captureAndPush } = usePouSnapshot()
+  const isDebuggerVisible = useOpenPLCStore((s) => s.workspace.isDebuggerVisible)
+  const setExtraKeys = useOpenPLCStore((s) => s.workspaceActions.setDebugExtraKeys)
+  const shownColumns = useMemo(
+    () => (isDebuggerVisible ? [...columns.slice(0, 2), liveColumn, ...columns.slice(2)] : columns),
+    [isDebuggerVisible],
+  )
+  // The globals shown here are polled while the resource is open and logged in.
+  useEffect(() => {
+    setExtraKeys('resource-globals', isDebuggerVisible ? tableData.map((v) => v.name.toUpperCase()) : [])
+    return () => setExtraKeys('resource-globals', [])
+  }, [isDebuggerVisible, tableData, setExtraKeys])
 
   return (
     <GenericTable<PLCGlobalVariable>
-      columns={columns}
+      columns={shownColumns}
       tableData={tableData}
       selectedRow={selectedRow}
       handleRowClick={handleRowClick}

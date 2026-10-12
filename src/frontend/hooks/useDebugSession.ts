@@ -16,7 +16,7 @@ import type { DebugConnectionConfig, DebugTreeNode, FbInstanceInfo } from '../..
 import { useDebugger, useSimulator } from '../../middleware/shared/providers'
 import { useOpenPLCStore } from '../store'
 import { parseCheckpointMap } from '../utils/checkpoint-map'
-import { parseDebugMap } from '../utils/debug-parser'
+import { packDebugAddr, parseDebugMap } from '../utils/debug-parser'
 import {
   buildDebugVariableTreeMap,
   buildFbInstanceMap,
@@ -206,6 +206,16 @@ export function useDebugSession(): UseDebugSessionReturn {
         }
 
         // Store debug artifacts in workspace
+        // Every leaf by address, hidden ones too: the PLC's forced list and the prepared
+        // values name leaves by address and path, wherever the variable is shown.
+        wsActions.setDebugLeaves(
+          new Map(
+            debugMap.leaves.map((leaf) => [
+              packDebugAddr(leaf),
+              { path: leaf.path, type: leaf.type, ...(leaf.hidden ? { hidden: true } : {}) },
+            ]),
+          ),
+        )
         wsActions.setDebugVariableIndexes(indexMap)
         wsActions.setDebugVariableTree(treeMap)
         wsActions.setFbDebugInstances(fbDebugInstancesMap)

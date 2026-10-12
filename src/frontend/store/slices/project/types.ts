@@ -220,6 +220,8 @@ export type ProjectActions = {
   // Instances
   createInstance: (dto: InstanceDTO & { rowToInsert?: number }) => ProjectResponse
   setInstances: (args: { instances: PLCInstance[] }) => ProjectResponse
+  /** Replace the project's force lists (an empty array removes them from project.json). */
+  setForceLists: (lists: NonNullable<PLCProjectData['forceLists']>) => void
   updateInstance: (dto: InstanceDTO & { rowId: number }) => ProjectResponse
   deleteInstance: (args: { rowId: number }) => void
   rearrangeInstances: (args: { rowId: number; newIndex: number }) => void

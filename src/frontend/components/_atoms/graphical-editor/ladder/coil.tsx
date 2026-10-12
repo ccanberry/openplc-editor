@@ -1,10 +1,8 @@
-import * as Popover from '@radix-ui/react-popover'
 import { useEffect, useRef, useState } from 'react'
 
-import { useDebugger } from '../../../../../middleware/shared/providers'
 import { useDebugCompositeKey } from '../../../../hooks/use-debug-composite-key'
-import { useDebugValue, useIsDebuggerVisible } from '../../../../hooks/use-debug-value'
-import { forceDebugVariable, releaseDebugVariable } from '../../../../services/debug-force-variable'
+import { useDebugValue, useForceMark, useIsDebuggerVisible } from '../../../../hooks/use-debug-value'
+import { clickToPrepare } from '../../../../services/forcing'
 import { isExpressionValidForType } from '../../../../services/graphical-scope'
 import { useOpenPLCStore } from '../../../../store'
 import { cn } from '../../../../utils/cn'
@@ -29,11 +27,10 @@ export const Coil = (block: CoilProps) => {
     ladderFlowActions: { updateNode },
   } = useOpenPLCStore()
 
-  const debugger_ = useDebugger()
   const isDebuggerVisible = useIsDebuggerVisible()
   const getCompositeKey = useDebugCompositeKey()
   const compositeKey = getCompositeKey(data.variable.name)
-  const { value: debugValue, isForced, forcedValue, debugIndex } = useDebugValue(compositeKey)
+  const { value: debugValue, isForced, forcedValue } = useDebugValue(compositeKey)
 
   const coil = DEFAULT_COIL_TYPES[data.variant]
   const [coilVariableValue, setCoilVariableValue] = useState<string>(data.variable.name)
@@ -112,37 +109,16 @@ export const Coil = (block: CoilProps) => {
     return displayState ? '#00FF00' : '#0464FB'
   })()
 
-  const [isContextMenuOpen, setIsContextMenuOpen] = useState<boolean>(false)
-  const [contextMenuPosition, setContextMenuPosition] = useState<{ x: number; y: number } | null>(null)
-
-  const handleForceTrue = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsContextMenuOpen(false)
-    if (data.variable.name) await forceDebugVariable(debugger_, compositeKey, debugIndex, new Uint8Array([1]), true)
-  }
-
-  const handleForceFalse = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsContextMenuOpen(false)
-    if (data.variable.name) await forceDebugVariable(debugger_, compositeKey, debugIndex, new Uint8Array([0]), false)
-  }
-
-  const handleReleaseForce = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsContextMenuOpen(false)
-    if (data.variable.name) await releaseDebugVariable(debugger_, compositeKey, debugIndex)
-  }
-
+  // CODESYS: a click while logged in cycles the prepared value <TRUE> -> <FALSE> -> none;
+  // F7 forces it, Ctrl+F7 writes it.
+  const forceMark = useForceMark(data.variable.name ? compositeKey : undefined)
   const handleClick = (e: React.MouseEvent) => {
-    if (!isDebuggerVisible) return
+    if (!isDebuggerVisible || !data.variable.name) return
     e.preventDefault()
     e.stopPropagation()
-    setContextMenuPosition({ x: e.clientX, y: e.clientY })
-    setIsContextMenuOpen(true)
+    clickToPrepare(compositeKey)
   }
+
 
   /**
    * Handle with the variable input onBlur event
@@ -272,53 +248,11 @@ export const Coil = (block: CoilProps) => {
           )}
         </div>
 
-        {isDebuggerVisible &&
-          contextMenuPosition &&
-          (() => {
-            return (
-              <Popover.Root open={isContextMenuOpen} onOpenChange={setIsContextMenuOpen}>
-                <Popover.Portal>
-                  <Popover.Content
-                    align='start'
-                    side='bottom'
-                    sideOffset={5}
-                    className={cn(
-                      'box z-[100] flex h-fit w-fit min-w-32 flex-col rounded-lg text-xs',
-                      'focus:outline-none focus-visible:outline-none',
-                      'bg-white text-neutral-1000 dark:bg-neutral-950 dark:text-neutral-300',
-                    )}
-                    style={{
-                      position: 'fixed',
-                      left: `${contextMenuPosition.x}px`,
-                      top: `${contextMenuPosition.y}px`,
-                    }}
-                    onOpenAutoFocus={(e) => e.preventDefault()}
-                  >
-                    <div
-                      className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
-                      onClick={(e) => void handleForceTrue(e)}
-                    >
-                      <p>Force True</p>
-                    </div>
-                    <div
-                      className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
-                      onClick={(e) => void handleForceFalse(e)}
-                    >
-                      <p>Force False</p>
-                    </div>
-                    {isForced && (
-                      <div
-                        className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
-                        onClick={(e) => void handleReleaseForce(e)}
-                      >
-                        <p>Release Force</p>
-                      </div>
-                    )}
-                  </Popover.Content>
-                </Popover.Portal>
-              </Popover.Root>
-            )
-          })()}
+        {isDebuggerVisible && forceMark.prepared && (
+          <div className='pointer-events-none absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap font-mono text-[9px] text-blue-500'>
+            {forceMark.prepared}
+          </div>
+        )}
       </div>
       {data.handles.map((handle, index) => (
         <CustomHandle key={index} {...handle} />

@@ -676,4 +676,53 @@ describe('createWorkspaceSlice', () => {
     // running machine (the PLC itself forgets them on reboot, restart or download).
     expect(workspace.debugBreakpoints).toEqual([])
   })
+
+  // -------------------------------------------------------------------------
+  // CODESYS-style forcing
+  // -------------------------------------------------------------------------
+  describe('forcing state', () => {
+    it('starts empty', () => {
+      const { workspace } = store.getState()
+      expect(workspace.debugLeaves).toEqual(new Map())
+      expect(workspace.debugPrepared).toEqual(new Map())
+      expect(workspace.debugPlcForces).toBeNull()
+      expect(workspace.debugExtraKeys).toEqual({})
+      expect(workspace.debugPrepareTarget).toBeNull()
+    })
+
+    it('sets leaves, prepared values, PLC forces, extra keys and the prepare target', () => {
+      const a = store.getState().workspaceActions
+      a.setDebugLeaves(new Map([[1, { path: 'X', type: 'INT' }]]))
+      a.setDebugPrepared('X', { index: 1, type: 'INT', value: '5' })
+      a.setDebugPrepared('Y', { index: 2, type: 'BOOL', value: null })
+      a.setDebugPrepared('Y', null)
+      a.setDebugPlcForces(new Map([['X', '5']]))
+      a.setDebugExtraKeys('force-list', ['X'])
+      a.setDebugExtraKeys('other', ['Z'])
+      a.setDebugExtraKeys('other', [])
+      a.setDebugPrepareTarget({ path: 'X', index: 1, type: 'INT' })
+      const { workspace } = store.getState()
+      expect(workspace.debugLeaves.get(1)).toEqual({ path: 'X', type: 'INT' })
+      expect([...workspace.debugPrepared.keys()]).toEqual(['X'])
+      expect(workspace.debugPlcForces?.get('X')).toBe('5')
+      expect(workspace.debugExtraKeys).toEqual({ 'force-list': ['X'] })
+      expect(workspace.debugPrepareTarget?.path).toBe('X')
+      a.clearDebugPrepared()
+      expect(store.getState().workspace.debugPrepared.size).toBe(0)
+    })
+
+    it('clearDebugState forgets the forcing state of the session (the PLC keeps its forces)', () => {
+      const a = store.getState().workspaceActions
+      a.setDebugLeaves(new Map([[1, { path: 'X', type: 'INT' }]]))
+      a.setDebugPrepared('X', { index: 1, type: 'INT', value: '5' })
+      a.setDebugPlcForces(new Map([['X', '5']]))
+      a.setDebugPrepareTarget({ path: 'X', index: 1, type: 'INT' })
+      a.clearDebugState()
+      const { workspace } = store.getState()
+      expect(workspace.debugLeaves.size).toBe(0)
+      expect(workspace.debugPrepared.size).toBe(0)
+      expect(workspace.debugPlcForces).toBeNull()
+      expect(workspace.debugPrepareTarget).toBeNull()
+    })
+  })
 })

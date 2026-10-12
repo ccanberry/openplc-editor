@@ -1103,6 +1103,14 @@ const createProjectSlice: StateCreator<ProjectSliceRoot, [], [], ProjectSlice> =
       )
       return ok()
     },
+    setForceLists: (lists) => {
+      setState(
+        produce((slice: ProjectSlice) => {
+          if (lists.length > 0) slice.project.data.forceLists = lists
+          else delete slice.project.data.forceLists
+        }),
+      )
+    },
     setInstances: ({ instances }) => {
       setState(
         produce((slice: ProjectSlice) => {

@@ -42,6 +42,8 @@ beforeEach(() => {
     debuggerSetBreakpoints: jest.fn().mockResolvedValue({ success: true }),
     debuggerRunControl: jest.fn().mockResolvedValue({ success: true }),
     debuggerGetStopInfo: jest.fn().mockResolvedValue({ success: true, stopped: true, checkpointId: 7 }),
+    debuggerSetBatch: jest.fn().mockResolvedValue({ success: true }),
+    debuggerListForced: jest.fn().mockResolvedValue({ success: true, items: [{ index: 3, value: new Uint8Array([1]) }] }),
   } as unknown as typeof window.bridge
 
   adapter = createEditorDebuggerAdapter()
@@ -401,6 +403,31 @@ describe('getStopInfo', () => {
 // ---------------------------------------------------------------------------
 // onDisconnected
 // ---------------------------------------------------------------------------
+
+// setBatch / listForced (CODESYS-style forcing, FC 0x4E / 0x4F)
+describe('setBatch', () => {
+  it('passes the batch to the bridge', async () => {
+    const items = [{ index: 1, op: 'force' as const, value: new Uint8Array([1]) }]
+    expect(await adapter.setBatch(items)).toEqual({ success: true })
+    expect(window.bridge.debuggerSetBatch).toHaveBeenCalledWith(items)
+  })
+  it('turns a bridge failure into an error result', async () => {
+    ;(window.bridge.debuggerSetBatch as jest.Mock).mockRejectedValue(new Error('gone'))
+    expect(await adapter.setBatch([{ index: 1, op: 'unforce' }])).toEqual({ success: false, error: 'gone' })
+  })
+})
+
+describe('listForced', () => {
+  it('returns the PLC forced list', async () => {
+    const r = await adapter.listForced()
+    expect(r.success).toBe(true)
+    expect(r.items[0].index).toBe(3)
+  })
+  it('turns a bridge failure into an empty error result', async () => {
+    ;(window.bridge.debuggerListForced as jest.Mock).mockRejectedValue(new Error('gone'))
+    expect(await adapter.listForced()).toEqual({ success: false, items: [], error: 'gone' })
+  })
+})
 
 describe('onDisconnected', () => {
   it('returns a working unsubscribe function', async () => {

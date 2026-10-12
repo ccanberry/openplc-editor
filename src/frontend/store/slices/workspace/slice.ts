@@ -55,6 +55,11 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
     debugMd5Mismatch: null,
     debugConnectionType: null,
     debugTargetEndian: 'le',
+    debugLeaves: new Map(),
+    debugPrepared: new Map(),
+    debugPlcForces: null,
+    debugExtraKeys: {},
+    debugPrepareTarget: null,
     // Run control
     debugCheckpointMap: [],
     debugBreakpoints: [],
@@ -466,6 +471,12 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
           workspace.debugCheckpointMap = []
           workspace.debugHalted = false
           workspace.debugStoppedCheckpointId = null
+          // Prepared values belong to the session too (CODESYS forgets them at logout). The
+          // PLC's forces stay on the PLC; what this editor knew of them goes.
+          workspace.debugLeaves = new Map()
+          workspace.debugPrepared = new Map()
+          workspace.debugPlcForces = null
+          workspace.debugPrepareTarget = null
         }),
       )
     },
@@ -486,6 +497,50 @@ const createWorkspaceSlice: StateCreator<WorkspaceSlice, [], [], WorkspaceSlice>
           workspace.debugForcedVariables.delete(compositeKey)
           workspace.debugVariableTree.delete(compositeKey)
           workspace.debugExpandedNodes.delete(compositeKey)
+        }),
+      )
+    },
+    setDebugLeaves: (leaves) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugLeaves = leaves
+        }),
+      )
+    },
+    setDebugPrepared: (path, entry) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          if (entry) workspace.debugPrepared.set(path, entry)
+          else workspace.debugPrepared.delete(path)
+        }),
+      )
+    },
+    clearDebugPrepared: () => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugPrepared = new Map()
+        }),
+      )
+    },
+    setDebugPlcForces: (forces) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugPlcForces = forces
+        }),
+      )
+    },
+    setDebugExtraKeys: (source, keys) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          if (keys.length > 0) workspace.debugExtraKeys[source] = keys
+          else delete workspace.debugExtraKeys[source]
+        }),
+      )
+    },
+    setDebugPrepareTarget: (target) => {
+      setState(
+        produce(({ workspace }: WorkspaceSlice) => {
+          workspace.debugPrepareTarget = target
         }),
       )
     },

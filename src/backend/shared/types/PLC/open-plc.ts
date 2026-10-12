@@ -848,6 +848,9 @@ const PLCProjectDataSchema = z.object({
   libraryManifest: z.string().optional(),
   debugVariables: PLCDebugVariablesSchema,
   hmiPublish: PLCHmiPublishSchema,
+  forceLists: z
+    .array(z.object({ name: z.string(), rows: z.array(z.object({ variable: z.string(), value: z.string() })) }))
+    .optional(),
   deletedPous: z
     .array(
       z.object({

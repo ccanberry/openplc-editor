@@ -41,6 +41,7 @@
  */
 
 import { detectTargetEndian, type TargetEndian } from '../../../frontend/utils/endian'
+import { DEBUG_BATCH_MAX } from '../../../middleware/shared/ports/debugger-port'
 import { ModbusDebugResponse, ModbusFunctionCode } from '../simulator/types'
 import type { DebugSetResult, DebugTransportResult, Md5ProbeResult } from './types'
 
@@ -350,6 +351,121 @@ export function parseSetVariableResponse(data: Uint8Array): DebugSetResult {
   }
 
   return { success: true }
+}
+
+// ---------------------------------------------------------------------------
+// CODESYS-style forcing (FC 0x4E / 0x4F, openplc-runtime core 1.8.0)
+// ---------------------------------------------------------------------------
+
+export type DebugBatchOp = 'write' | 'force' | 'unforce'
+
+/** One write / force / unforce; `index` is packed DebugAddr (`(arr << 16) | elem`). */
+export interface DebugBatchItem {
+  index: number
+  op: DebugBatchOp
+  /** The value in target byte order; ignored (and not sent) for 'unforce'. */
+  value?: Uint8Array
+}
+
+export { DEBUG_BATCH_MAX }
+
+const BATCH_OP_CODE: Record<DebugBatchOp, number> = { write: 0, force: 1, unforce: 2 }
+
+/**
+ * [FC=0x4E][count:U16BE] then count x [arr:U8][elem:U16BE][op:U8][len:U16BE][value...].
+ * The runtime validates all of them first and applies them together at one scan boundary.
+ */
+export function buildSetBatchRequest(items: DebugBatchItem[]): Uint8Array {
+  if (items.length === 0 || items.length > DEBUG_BATCH_MAX) {
+    throw new Error(`A batch takes 1 to ${DEBUG_BATCH_MAX} items, not ${items.length}`)
+  }
+  const values = items.map((it) => (it.op === 'unforce' ? new Uint8Array(0) : (it.value ?? new Uint8Array(0))))
+  const size = 3 + values.reduce((n, v) => n + 6 + v.length, 0)
+  const buf = alloc(size)
+  writeU8(buf, 0, ModbusFunctionCode.DEBUG_SET_BATCH)
+  writeU16BE(buf, 1, items.length)
+  let pos = 3
+  items.forEach((it, i) => {
+    writeU8(buf, pos, (it.index >>> 16) & 0xff)
+    writeU16BE(buf, pos + 1, it.index & 0xffff)
+    writeU8(buf, pos + 3, BATCH_OP_CODE[it.op])
+    writeU16BE(buf, pos + 4, values[i].length)
+    buf.set(values[i], pos + 6)
+    pos += 6 + values[i].length
+  })
+  return buf
+}
+
+export interface SetBatchResult {
+  success: boolean
+  /** The runtime does not know FC 0x4E (core before 1.8.0). */
+  unsupported?: boolean
+  error?: string
+}
+
+export function parseSetBatchResponse(data: Uint8Array): SetBatchResult {
+  if (data.length < 2) return { success: false, error: `Invalid response: too short (${data.length} bytes)` }
+  const fc = readU8(data, 0)
+  if (fc !== ModbusFunctionCode.DEBUG_SET_BATCH) {
+    return { success: false, unsupported: true, error: 'The PLC does not take a batch (core older than 1.8.0)' }
+  }
+  const status = readU8(data, 1)
+  if (status !== ModbusDebugResponse.SUCCESS) return { success: false, error: statusError(status) }
+  return { success: true }
+}
+
+/** [FC=0x4F][arr:U8][elem:U16BE] -- where to continue the list (0 = from the start). */
+export function buildListForcedRequest(cursor: number): Uint8Array {
+  const buf = alloc(4)
+  writeU8(buf, 0, ModbusFunctionCode.DEBUG_LIST_FORCED)
+  writeU8(buf, 1, (cursor >>> 16) & 0xff)
+  writeU16BE(buf, 2, cursor & 0xffff)
+  return buf
+}
+
+export interface ForcedLeaf {
+  index: number
+  /** The forced value, in target byte order. */
+  value: Uint8Array
+}
+
+export interface ListForcedPage {
+  success: boolean
+  /** The PLC cannot list its forces: an older core, or a program built before it. */
+  unsupported?: boolean
+  items: ForcedLeaf[]
+  /** Where the next page starts, when there is one. */
+  next?: number
+  error?: string
+}
+
+/**
+ * [FC][status][more:U8][next arr:U8][next elem:U16BE][count:U16BE] then
+ * count x [arr:U8][elem:U16BE][len:U16BE][value...].
+ */
+export function parseListForcedResponse(data: Uint8Array): ListForcedPage {
+  if (data.length < 2) return { success: false, items: [], error: `Invalid response: too short (${data.length} bytes)` }
+  const fc = readU8(data, 0)
+  const status = readU8(data, 1)
+  if (fc !== ModbusFunctionCode.DEBUG_LIST_FORCED || status === ModbusDebugResponse.ERROR_NOT_SUPPORTED) {
+    return { success: false, unsupported: true, items: [], error: 'The PLC cannot list its forces' }
+  }
+  if (status !== ModbusDebugResponse.SUCCESS) return { success: false, items: [], error: statusError(status) }
+  if (data.length < 8) return { success: false, items: [], error: `Incomplete list (${data.length} bytes)` }
+  const more = readU8(data, 2) !== 0
+  const next = (readU8(data, 3) << 16) | readU16BE(data, 4)
+  const count = readU16BE(data, 6)
+  const items: ForcedLeaf[] = []
+  let pos = 8
+  for (let i = 0; i < count; i++) {
+    if (pos + 5 > data.length) return { success: false, items: [], error: 'Truncated forced list' }
+    const index = (readU8(data, pos) << 16) | readU16BE(data, pos + 1)
+    const len = readU16BE(data, pos + 3)
+    if (pos + 5 + len > data.length) return { success: false, items: [], error: 'Truncated forced list' }
+    items.push({ index, value: data.slice(pos + 5, pos + 5 + len) })
+    pos += 5 + len
+  }
+  return { success: true, items, ...(more ? { next } : {}) }
 }
 
 /**

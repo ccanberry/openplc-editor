@@ -52,6 +52,25 @@ export interface DebugStopInfo {
   error?: string
 }
 
+/** The PLC takes at most this many items per batch (its write queue holds 128). */
+export const DEBUG_BATCH_MAX = 64
+
+/** One write / force / unforce of a batch; `index` is the packed debug address. */
+export interface DebugBatchItem {
+  index: number
+  op: 'write' | 'force' | 'unforce'
+  /** The value in target byte order (not used for 'unforce'). */
+  value?: Uint8Array
+}
+
+export interface DebugForcedList {
+  success: boolean
+  /** The PLC cannot list its forces (an older core, or a program built before it). */
+  unsupported?: boolean
+  items: { index: number; value: Uint8Array }[]
+  error?: string
+}
+
 export interface DebuggerPort {
   /**
    * Connect to a debug target.
@@ -137,6 +156,12 @@ export interface DebuggerPort {
    * indicator and the current-line highlight while a breakpoint is held.
    */
   getStopInfo(): Promise<DebugStopInfo>
+
+  /** Writes / forces / unforces applied together by the PLC at one scan boundary (max 64). */
+  setBatch(items: DebugBatchItem[]): Promise<{ success: boolean; unsupported?: boolean; error?: string }>
+
+  /** Every variable the PLC holds forced, with its forced value. */
+  listForced(): Promise<DebugForcedList>
 
   /**
    * Subscribe to debugger disconnection events (e.g., simulator stopped, connection lost).

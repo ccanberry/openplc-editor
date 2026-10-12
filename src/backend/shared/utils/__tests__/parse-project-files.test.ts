@@ -762,6 +762,14 @@ describe('parseProjectFiles — configuration fallback', () => {
     const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
     expect(result.projectData.hmiPublish).toBeUndefined()
   })
+
+  it('reads the force lists carried with the project, none when absent', () => {
+    const forceLists = [{ name: 'Bench simulation', rows: [{ variable: 'EmergencyOk', value: 'TRUE' }] }]
+    const withLists = parseProjectFiles('/p', makeProjectJson({ forceLists }), makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(withLists.projectData.forceLists).toEqual(forceLists)
+    const without = parseProjectFiles('/p', makeProjectJson({}), makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(without.projectData.forceLists).toBeUndefined()
+  })
 })
 
 // ---------------------------------------------------------------------------

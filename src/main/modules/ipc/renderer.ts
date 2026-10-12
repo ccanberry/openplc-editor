@@ -467,6 +467,19 @@ const rendererProcessBridge = {
     error?: string
   }> => ipcRenderer.invoke('debugger:stopinfo'),
 
+  // -------- CODESYS-style forcing (FC 0x4E / 0x4F) --------
+  debuggerSetBatch: (
+    items: { index: number; op: 'write' | 'force' | 'unforce'; value?: Uint8Array }[],
+  ): Promise<{ success: boolean; unsupported?: boolean; error?: string }> =>
+    ipcRenderer.invoke('debugger:set-batch', items),
+
+  debuggerListForced: (): Promise<{
+    success: boolean
+    unsupported?: boolean
+    items: { index: number; value: Uint8Array }[]
+    error?: string
+  }> => ipcRenderer.invoke('debugger:list-forced'),
+
   // ===================== RUNTIME API METHODS =====================
   runtimeGetUsersInfo: (ipAddress: string): Promise<{ hasUsers: boolean; runtimeVersion?: string; error?: string }> =>
     ipcRenderer.invoke('runtime:get-users-info', ipAddress),

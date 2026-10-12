@@ -29,6 +29,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import type { DebugConnectionType, DebugTreeNode } from '../../middleware/shared/ports/types'
 import { useCapabilities, useDebugger } from '../../middleware/shared/providers'
+import { leavesByPath, refreshPlcForces } from '../services/forcing'
 import { openPLCStoreBase, useOpenPLCStore } from '../store'
 import { buildActiveIndexSet } from '../utils/debug-polling-filter'
 import { applySwapToVariableBytes } from '../utils/endian'
@@ -42,6 +43,8 @@ const DEFAULT_POLL_INTERVAL_MS = 200
  *  poll is a full orchestrator `run_command` round-trip, so we slow right
  *  down to avoid hammering the edge API / runtime. */
 const HTTP_FALLBACK_POLL_INTERVAL_MS = 1000
+/** How often the PLC is asked what it holds forced (FC 0x4F, ~5 ms on the MCM20.1). */
+const FORCED_LIST_INTERVAL_MS = 1000
 
 // Batch size is transport-dependent. The wire request packs 3 bytes per
 // variable (arr:u8 + elem:u16); the response packs raw type-sized values
@@ -155,6 +158,10 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
   const debugExpandedNodes = useOpenPLCStore(useCallback((s) => s.workspace.debugExpandedNodes, []))
   const debugGraphList = useOpenPLCStore(useCallback((s) => s.workspace.debugGraphList, []))
   const fbSelectedInstance = useOpenPLCStore(useCallback((s) => s.workspace.fbSelectedInstance, []))
+  const debugExtraKeys = useOpenPLCStore(useCallback((s) => s.workspace.debugExtraKeys, []))
+  const debugPrepared = useOpenPLCStore(useCallback((s) => s.workspace.debugPrepared, []))
+  const debugPlcForces = useOpenPLCStore(useCallback((s) => s.workspace.debugPlcForces, []))
+  const lastForcedListRef = useRef(0)
 
   const pollingIntervalRef = useRef<number | null>(null)
   const staleCheckRef = useRef<number | null>(null)
@@ -187,7 +194,17 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
   useEffect(() => {
     activeIndexesRef.current = null
     visibleVarsCacheRef.current = null
-  }, [pous, editorName, debugForcedVariables, debugExpandedNodes, debugGraphList, fbSelectedInstance])
+  }, [
+    pous,
+    editorName,
+    debugForcedVariables,
+    debugExpandedNodes,
+    debugGraphList,
+    fbSelectedInstance,
+    debugExtraKeys,
+    debugPrepared,
+    debugPlcForces,
+  ])
 
   /** Build the full leaf metadata map from all debug trees (once per session). */
   const getAllLeaves = useCallback(() => {
@@ -202,6 +219,18 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
         if (existing) existing.push(...metas)
         else allLeaves.set(index, [...metas])
       }
+    }
+
+    // EVERY LEAF UNDER ITS OWN PATH TOO (`EMERGENCYOK`, `INSTANCE0.MT_CLOCK.ET`): a force list,
+    // the resource's global variables and the PLC's forced list name variables by path, and
+    // a global no program declares has no composite key at all.
+    for (const [index, leaf] of openPLCStoreBase.getState().workspace.debugLeaves) {
+      if (leaf.hidden) continue
+      const meta: LeafMeta = { compositeKey: leaf.path, type: leaf.type }
+      const existing = allLeaves.get(index)
+      if (existing) {
+        if (!existing.some((m) => m.compositeKey === leaf.path)) existing.push(meta)
+      } else allLeaves.set(index, [meta])
     }
 
     if (allLeaves.size > 0) {
@@ -225,7 +254,26 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
       if (cacheResult !== visibleVarsCacheRef.current) {
         visibleVarsCacheRef.current = cacheResult
       }
-      activeIndexesRef.current = activeIndexes
+      // What the forcing views show: force lists and the global table (debugExtraKeys), the
+      // prepared values and whatever the PLC holds forced.
+      const ws = state.workspace
+      const byPath = leavesByPath()
+      const extra = new Set<number>(activeIndexes)
+      const addKey = (key: string) => {
+        const idx = ws.debugVariableIndexes.get(key) ?? byPath.get(key.toUpperCase())?.index
+        if (idx !== undefined) extra.add(idx)
+      }
+      for (const keys of Object.values(ws.debugExtraKeys)) keys.forEach(addKey)
+      for (const path of ws.debugPrepared.keys()) addKey(path)
+      if (ws.debugPlcForces) for (const path of ws.debugPlcForces.keys()) addKey(path)
+      activeIndexesRef.current = Array.from(extra).sort((a, b) => a - b)
+    }
+
+    // The PLC's forced list, about once a second, in this same loop (one request at a time).
+    if (Date.now() - lastForcedListRef.current >= FORCED_LIST_INTERVAL_MS) {
+      lastForcedListRef.current = Date.now()
+      const type = openPLCStoreBase.getState().workspace.debugConnectionType
+      if (type === 'tcp' || type === 'websocket') await refreshPlcForces(debuggerPort)
     }
 
     const activeIndexes = activeIndexesRef.current

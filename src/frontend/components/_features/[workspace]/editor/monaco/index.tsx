@@ -8,9 +8,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PLCPou } from '../../../../../../middleware/shared/ports/types'
 import { useAI, useCapabilities, useProject } from '../../../../../../middleware/shared/providers'
 import { useDebugBoolValuesMap, useDebugNonBoolValuesMap } from '../../../../../hooks/use-debug-value'
+import { clickToPrepare } from '../../../../../services/forcing'
 import { executeSaveActiveFile, executeSaveProject } from '../../../../../services/save-actions'
 import { pouUri } from '../../../../../services/st-lsp'
 import { openPLCStoreBase, useOpenPLCStore } from '../../../../../store'
+import { preparedLabel } from '../../../../../utils/forcing'
 import { applyAcceptedHunks, computeHunks } from '../../../../../utils/ai-diff-review'
 import {
   breakpointableLines,
@@ -138,6 +140,8 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   const focusDisposables = useRef<{ onFocus?: monaco.IDisposable; onBlur?: monaco.IDisposable }>({})
   // Disposable for the breakpoint-gutter mouse-down listener (run-control).
   const breakpointMouseDisposable = useRef<monaco.IDisposable | null>(null)
+  /** The inline values on screen: a click on one prepares that variable (CODESYS). */
+  const inlineValuesRef = useRef<{ key: string; line: number; endCol: number }[]>([])
   const coexistenceRef = useRef<AiLspCoexistenceController | null>(null)
   const [editorMounted, setEditorMounted] = useState(false)
   const [modelVersion, setModelVersion] = useState(0)
@@ -183,6 +187,9 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
   } = useOpenPLCStore()
   const debugBoolValues = useDebugBoolValuesMap()
   const debugNonBoolValues = useDebugNonBoolValuesMap()
+  const debugPrepared = useOpenPLCStore((s) => s.workspace.debugPrepared)
+  const debugPlcForces = useOpenPLCStore((s) => s.workspace.debugPlcForces)
+  const debugForcedVariables = useOpenPLCStore((s) => s.workspace.debugForcedVariables)
 
   // Breakpoint gutter: only for textual POUs during a debug session, where the
   // checkpoint map makes breakpoints meaningful (graphical LD/FBD/SFC
@@ -604,19 +611,30 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     if (!debugVarPositions || !editorRef.current) return
 
     const { prefix, positions } = debugVarPositions
-    const decorations: monaco.editor.IModelDeltaDecoration[] = positions.map(({ expr, line, startCol, endCol }) => ({
-      range: new monaco.Range(line, startCol, line, endCol),
-      options: {
-        after: {
-          content: ` = ${debugBoolValues.get(prefix + expr) ?? debugNonBoolValues.get(prefix + expr) ?? '?'} `,
-          inlineClassName: 'debug-inline-value',
+    const { debugVariableIndexes, debugLeaves } = openPLCStoreBase.getState().workspace
+    inlineValuesRef.current = positions.map(({ expr, line, endCol }) => ({ key: prefix + expr, line, endCol }))
+    const decorations: monaco.editor.IModelDeltaDecoration[] = positions.map(({ expr, line, startCol, endCol }) => {
+      const key = prefix + expr
+      const index = debugVariableIndexes.get(key)
+      const path = index !== undefined ? debugLeaves.get(index)?.path : undefined
+      // FORCED: the PLC's own list when it gives one, else what this editor forced.
+      const forced = path && debugPlcForces ? debugPlcForces.has(path) : debugForcedVariables.has(key)
+      const prepared = path ? preparedLabel(debugPrepared.get(path)) : ''
+      return {
+        range: new monaco.Range(line, startCol, line, endCol),
+        options: {
+          after: {
+            content: ` = ${debugBoolValues.get(key) ?? debugNonBoolValues.get(key) ?? '?'}${forced ? ' F' : ''}${prepared ? ` ${prepared}` : ''} `,
+            inlineClassName:
+              'debug-inline-value' + (forced ? ' debug-inline-forced' : '') + (prepared ? ' debug-inline-prepared' : ''),
+          },
         },
-      },
-    }))
+      }
+    })
 
     const collection = editorRef.current.createDecorationsCollection(decorations)
     return () => collection.clear()
-  }, [debugVarPositions, debugBoolValues, debugNonBoolValues])
+  }, [debugVarPositions, debugBoolValues, debugNonBoolValues, debugPrepared, debugPlcForces, debugForcedVariables])
 
   // Breakpoint gutter glyphs + halted current-line highlight (run control).
   // Faint hints mark breakpointable lines; solid dots mark armed breakpoints;
@@ -969,6 +987,24 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     // switches, and the run-control sync hook re-arms the runtime.
     breakpointMouseDisposable.current?.dispose()
     breakpointMouseDisposable.current = editorInstance.onMouseDown((e) => {
+      // A click on an inline value prepares that variable: a BOOL cycles <TRUE> / <FALSE> /
+      // none, anything else opens the prepare dialog. F7 forces, Ctrl+F7 writes.
+      const el = e.target.element
+      if (el && el.classList.contains('debug-inline-value') && e.target.position) {
+        const { lineNumber, column } = e.target.position
+        const onLine = inlineValuesRef.current.filter((v) => v.line === lineNumber)
+        const hit =
+          onLine.find((v) => v.endCol === column) ??
+          onLine.reduce<(typeof onLine)[number] | undefined>(
+            (best, v) => (!best || Math.abs(v.endCol - column) < Math.abs(best.endCol - column) ? v : best),
+            undefined,
+          )
+        if (hit) {
+          e.event.preventDefault()
+          clickToPrepare(hit.key)
+        }
+        return
+      }
       if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN) return
       const line = e.target.position?.lineNumber
       if (line === undefined) return

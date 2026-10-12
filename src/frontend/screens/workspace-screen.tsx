@@ -7,7 +7,6 @@ import { projectCapabilities } from '../../middleware/shared/ports/types'
 import {
   useCapabilities,
   useChatPanel,
-  useDebugger,
   useDevice,
   usePlatform,
   useProject,
@@ -30,6 +29,13 @@ import { ModbusServerEditor } from '../components/_features/[workspace]/editor/s
 import { OpcUaServerEditor } from '../components/_features/[workspace]/editor/server/opcua-server'
 import { S7CommServerEditor } from '../components/_features/[workspace]/editor/server/s7comm-server'
 import { VendorScreenEditor } from '../components/_features/[workspace]/editor/vendor-screen'
+import {
+  ForceCommands,
+  ForceListsPanel,
+  ForcesPanel,
+  PrepareValueDialog,
+  useForceShortcuts,
+} from '../components/_features/[workspace]/forcing'
 import { Search } from '../components/_features/[workspace]/search'
 import { SourceControlPanel } from '../components/_features/[workspace]/source-control'
 import { VariablesPanel } from '../components/_molecules/variables-panel'
@@ -52,7 +58,7 @@ import {
   useIsDebuggerVisible,
 } from '../hooks/use-debug-value'
 import { useRuntimePolling } from '../hooks/use-runtime-polling'
-import { forceDebugVariable, releaseDebugVariable } from '../services/debug-force-variable'
+import { setPrepared, targetForKey } from '../services/forcing'
 import { useOpenPLCStore } from '../store'
 import { cn } from '../utils/cn'
 import { toast } from '../utils/toast'
@@ -60,7 +66,6 @@ import { toast } from '../utils/toast'
 const WorkspaceScreen = () => {
   const capabilities = useCapabilities()
   const ChatPanel = useChatPanel()
-  const debuggerPort = useDebugger()
   const device = useDevice()
   const project = useProject()
 
@@ -151,6 +156,8 @@ const WorkspaceScreen = () => {
 
   // Start global runtime polling for status and logs
   useRuntimePolling()
+  // F7 force / Ctrl+F7 write / Alt+F7 unforce while logged in (CODESYS keys)
+  useForceShortcuts()
 
   // Build debug variables from POUs with debug=true
   const allDebugVariables = useMemo(
@@ -233,32 +240,21 @@ const WorkspaceScreen = () => {
     return new Map(Array.from(debugVariableTree.entries()).filter(([key]) => allKeys.has(key)))
   }, [allDebugVariables, debugForcedVariables, debugVariableTree])
 
-  // Force variable handler via DebuggerPort
+  // The watch list's menu PREPARES (CODESYS): TRUE / FALSE / a release; F7 forces, Ctrl+F7
+  // writes. Its value entry opens the shared prepare dialog itself.
   const handleForceVariable = useCallback(
-    async (
+    (
       compositeKey: string,
-      variableType: string,
+      _variableType: string,
       value?: boolean,
-      valueBuffer?: Uint8Array,
+      _valueBuffer?: Uint8Array,
       lookupKey?: string,
     ): Promise<void> => {
-      const keyForIndexLookup = lookupKey ?? compositeKey
-      const variableIndex = debugVariableIndexes.get(keyForIndexLookup)
-      if (variableIndex === undefined) return
-
-      if (!debuggerPort.isConnected()) return
-
-      if (value === undefined && valueBuffer === undefined) {
-        await releaseDebugVariable(debuggerPort, compositeKey, variableIndex)
-      } else {
-        const buffer = valueBuffer ?? new Uint8Array([value ? 1 : 0])
-        // Pass variableType so the wire-endianness swap inside the
-        // service knows whether to skip swapping (BOOL one-byte
-        // paths, STRING / WSTRING) — see services/debug-force-variable.
-        await forceDebugVariable(debuggerPort, compositeKey, variableIndex, buffer, value ?? true, variableType)
-      }
+      const target = targetForKey(lookupKey ?? compositeKey)
+      if (target) setPrepared(target, value === undefined ? null : value ? 'TRUE' : 'FALSE')
+      return Promise.resolve()
     },
-    [debugVariableIndexes, debuggerPort],
+    [],
   )
 
   const [graphList, _setGraphList] = useState<string[]>([])
@@ -726,7 +722,7 @@ const WorkspaceScreen = () => {
                       onValueChange={setActiveTab}
                       className='relative flex h-full min-h-0 w-full flex-col gap-2 overflow-hidden'
                     >
-                      <Tabs.List className='flex h-7 w-64 select-none gap-4'>
+                      <Tabs.List className='flex h-7 w-fit select-none gap-4'>
                         <Tabs.Trigger
                           value='console'
                           className='h-7 w-16 rounded-md bg-neutral-100 text-xs font-medium text-brand-light data-[state=active]:bg-blue-500 data-[state=active]:text-white dark:bg-neutral-900 dark:text-neutral-700 dark:data-[state=active]:bg-blue-500 dark:data-[state=active]:text-white'
@@ -741,6 +737,14 @@ const WorkspaceScreen = () => {
                             Debugger
                           </Tabs.Trigger>
                         )}
+                        {isDebuggerVisible && (
+                          <Tabs.Trigger value='forces' className='h-7 w-20 rounded-md bg-neutral-100 text-xs font-medium text-brand-light data-[state=active]:bg-blue-500 data-[state=active]:text-white dark:bg-neutral-900 dark:text-neutral-700 dark:data-[state=active]:bg-blue-500 dark:data-[state=active]:text-white'>
+                            Forces
+                          </Tabs.Trigger>
+                        )}
+                        <Tabs.Trigger value='force-lists' className='h-7 w-24 rounded-md bg-neutral-100 text-xs font-medium text-brand-light data-[state=active]:bg-blue-500 data-[state=active]:text-white dark:bg-neutral-900 dark:text-neutral-700 dark:data-[state=active]:bg-blue-500 dark:data-[state=active]:text-white'>
+                          Force lists
+                        </Tabs.Trigger>
                         {hasSearchResults && (
                           <Tabs.Trigger
                             value='search'
@@ -794,6 +798,20 @@ const WorkspaceScreen = () => {
                           </ResizablePanelGroup>
                         </Tabs.Content>
                       )}
+                      {isDebuggerVisible && (
+                        <Tabs.Content
+                          value='forces'
+                          className='flex h-full min-h-0 w-full flex-col overflow-hidden p-2 data-[state=inactive]:hidden'
+                        >
+                          <ForcesPanel />
+                        </Tabs.Content>
+                      )}
+                      <Tabs.Content
+                        value='force-lists'
+                        className='flex h-full min-h-0 w-full flex-col overflow-hidden p-2 data-[state=inactive]:hidden'
+                      >
+                        <ForceListsPanel />
+                      </Tabs.Content>
                       {hasSearchResults && (
                         <Tabs.Content
                           value='search'
@@ -815,22 +833,28 @@ const WorkspaceScreen = () => {
                           <PlcLogs />
                         </Tabs.Content>
                       )}
-                      {activeTab === 'console' && (
-                        <div className='absolute right-2 top-1 flex items-center gap-2'>
-                          <ConsoleFilters />
-                          <ClearConsoleButton />
-                        </div>
-                      )}
-                      {activeTab === 'plc-logs' && (
-                        <div className='absolute right-2 top-1 flex items-center gap-2'>
-                          <PlcLogsFilters />
-                          <ClearConsoleButton
-                            onClear={clearPlcLogs}
-                            isEmpty={typeof plcLogs === 'string' ? plcLogs.length === 0 : plcLogs.length === 0}
-                            label='Clear logs'
-                          />
-                        </div>
-                      )}
+                      {/* One row at the right: while logged in, what is prepared / forced and the
+                          Write / Force commands on every tab (CODESYS keeps them in view), then the
+                          console's or the PLC log's own tools. */}
+                      <div className='absolute right-2 top-1 flex items-center gap-3'>
+                        {isDebuggerVisible && <ForceCommands />}
+                        {activeTab === 'console' && (
+                          <div className='flex items-center gap-2'>
+                            <ConsoleFilters />
+                            <ClearConsoleButton />
+                          </div>
+                        )}
+                        {activeTab === 'plc-logs' && (
+                          <div className='flex items-center gap-2'>
+                            <PlcLogsFilters />
+                            <ClearConsoleButton
+                              onClear={clearPlcLogs}
+                              isEmpty={typeof plcLogs === 'string' ? plcLogs.length === 0 : plcLogs.length === 0}
+                              label='Clear logs'
+                            />
+                          </div>
+                        )}
+                      </div>
                     </Tabs.Root>
                   </ResizablePanel>
                 </ResizablePanelGroup>
@@ -858,6 +882,7 @@ const WorkspaceScreen = () => {
           </ResizablePanelGroup>
         </WorkspaceMainContent>
       </div>
+      <PrepareValueDialog />
       {hasVersionControl && projectPath && (
         <BranchStatusBar projectId={projectPath} onBranchSwitch={handleBranchSwitch} />
       )}

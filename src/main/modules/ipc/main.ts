@@ -44,17 +44,23 @@ import { PackageManagerModule } from '../../../backend/editor/package-manager'
 import { logger } from '../../../backend/editor/services'
 import { getOpenProjectPath, getProjectPath } from '../../../backend/editor/utils'
 import {
+  buildListForcedRequest,
   buildRunControlRequest,
+  buildSetBatchRequest,
   buildSetBreakpointsRequest,
+  type DebugBatchItem,
+  type ForcedLeaf,
+  parseListForcedResponse,
   parseRunControlResponse,
+  parseSetBatchResponse,
   parseStopInfoResponse,
   type RunControlInfo,
 } from '../../../backend/shared/debug/modbus-pdu'
-import { CHECKPOINT_FINGERPRINT_FILE } from '../../../backend/shared/utils/PLC/resolve-checkpoints'
 import { WebSocketDebugTransport } from '../../../backend/shared/debug/websocket-debug-transport'
-import { ModbusFunctionCode } from '../../../backend/shared/simulator/types'
 import { SimulatorModule } from '../../../backend/shared/simulator/simulator-module'
+import { ModbusFunctionCode } from '../../../backend/shared/simulator/types'
 import { VirtualSerialPort } from '../../../backend/shared/simulator/virtual-serial-port'
+import { CHECKPOINT_FINGERPRINT_FILE } from '../../../backend/shared/utils/PLC/resolve-checkpoints'
 
 class MainProcessBridge implements MainIpcModule {
   ipcMain
@@ -986,6 +992,8 @@ class MainProcessBridge implements MainIpcModule {
     this.registerHandle('debugger:set-breakpoints', this.handleDebuggerSetBreakpoints)
     this.registerHandle('debugger:run-control', this.handleDebuggerRunControl)
     this.registerHandle('debugger:stopinfo', this.handleDebuggerGetStopInfo)
+    this.registerHandle('debugger:set-batch', this.handleDebuggerSetBatch)
+    this.registerHandle('debugger:list-forced', this.handleDebuggerListForced)
 
     // ===================== RUNTIME API =====================
     this.registerHandle('runtime:get-users-info', this.handleRuntimeGetUsersInfo)
@@ -2115,6 +2123,51 @@ class MainProcessBridge implements MainIpcModule {
       }
     } catch (error) {
       return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  // -------- CODESYS-style forcing (FC 0x4E / 0x4F) --------
+  //
+  // A batch is applied by the PLC at one scan boundary (Write / Force values); the forced list
+  // is whatever the PLC holds forced, whoever forced it (another PC, a tool, before this login).
+
+  handleDebuggerSetBatch = async (
+    _event: IpcMainInvokeEvent,
+    items: DebugBatchItem[],
+  ): Promise<{ success: boolean; unsupported?: boolean; error?: string }> => {
+    if (this.debuggerConnectionType === null) {
+      return { success: false, error: 'Debugger not connected' }
+    }
+    try {
+      const request = buildSetBatchRequest(
+        items.map((it) => ({ ...it, ...(it.value ? { value: new Uint8Array(it.value) } : {}) })),
+      )
+      return parseSetBatchResponse(await this.sendDebugPdu(request))
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleDebuggerListForced = async (
+    _event: IpcMainInvokeEvent,
+  ): Promise<{ success: boolean; unsupported?: boolean; items: ForcedLeaf[]; error?: string }> => {
+    if (this.debuggerConnectionType === null) {
+      return { success: false, items: [], error: 'Debugger not connected' }
+    }
+    const items: ForcedLeaf[] = []
+    let cursor = 0
+    try {
+      // A page holds ~4 KB of values; 64 pages is far beyond any program's forces.
+      for (let page = 0; page < 64; page++) {
+        const parsed = parseListForcedResponse(await this.sendDebugPdu(buildListForcedRequest(cursor)))
+        if (!parsed.success) return { ...parsed, items: [] }
+        items.push(...parsed.items)
+        if (parsed.next === undefined) return { success: true, items }
+        cursor = parsed.next
+      }
+      return { success: false, items: [], error: 'The forced list did not end' }
+    } catch (error) {
+      return { success: false, items: [], error: getErrorMessage(error) }
     }
   }
 

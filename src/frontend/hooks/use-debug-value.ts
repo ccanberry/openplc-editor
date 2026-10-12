@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 import { useOpenPLCStore } from '../store'
+import { preparedLabel } from '../utils/forcing'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,4 +94,32 @@ export function useDebugNonBoolValuesMap(): Map<string, string> {
 /** Full forced Map — use only in container components that need to iterate all keys. */
 export function useDebugForcedVariablesMap(): Map<string, boolean> {
   return useOpenPLCStore(useCallback((s) => s.workspace.debugForcedVariables, []))
+}
+
+// ---------------------------------------------------------------------------
+// CODESYS-style forcing marks
+// ---------------------------------------------------------------------------
+
+export interface ForceMark {
+  /** The debug-map path the key resolves to (undefined offline / unknown key). */
+  path?: string
+  /** `<TRUE>`, `<17039>`, `<release>` when a value is prepared for F7 / Ctrl+F7. */
+  prepared: string
+  /** The PLC (or, on an older core, this editor) holds it forced. */
+  forced: boolean
+}
+
+/** Prepared / forced state of the variable behind a composite key or a map path. */
+export function useForceMark(key: string | undefined): ForceMark {
+  return useOpenPLCStore(
+    useShallow((s) => {
+      if (!key || !s.workspace.isDebuggerVisible) return { prepared: '', forced: false }
+      const ws = s.workspace
+      const index = ws.debugVariableIndexes.get(key) ?? ws.debugVariableIndexes.get(key.toUpperCase())
+      const path = index !== undefined ? ws.debugLeaves.get(index)?.path : undefined
+      const prepared = path ? preparedLabel(ws.debugPrepared.get(path)) : ''
+      const forced = path && ws.debugPlcForces ? ws.debugPlcForces.has(path) : ws.debugForcedVariables.has(key)
+      return { path, prepared, forced }
+    }),
+  )
 }

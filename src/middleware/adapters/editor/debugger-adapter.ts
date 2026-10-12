@@ -11,7 +11,13 @@
  */
 
 import { getErrorMessage } from '../../../frontend/utils/get-error-message'
-import type { DebuggerPort, DebugRunControlOp, DebugStopInfo } from '../../shared/ports/debugger-port'
+import type {
+  DebugBatchItem,
+  DebugForcedList,
+  DebuggerPort,
+  DebugRunControlOp,
+  DebugStopInfo,
+} from '../../shared/ports/debugger-port'
 import type {
   DebugConnectionConfig,
   DebugSetResult,
@@ -126,6 +132,22 @@ export function createEditorDebuggerAdapter(): DebuggerPort {
         return await window.bridge.debuggerGetStopInfo()
       } catch (err) {
         return { success: false, error: getErrorMessage(err) }
+      }
+    },
+
+    async setBatch(items: DebugBatchItem[]): Promise<{ success: boolean; unsupported?: boolean; error?: string }> {
+      try {
+        return await window.bridge.debuggerSetBatch(items)
+      } catch (err) {
+        return { success: false, error: getErrorMessage(err) }
+      }
+    },
+
+    async listForced(): Promise<DebugForcedList> {
+      try {
+        return await window.bridge.debuggerListForced()
+      } catch (err) {
+        return { success: false, items: [], error: getErrorMessage(err) }
       }
     },
 

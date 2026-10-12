@@ -1425,6 +1425,16 @@ describe('createProjectSlice', () => {
     })
   })
 
+  describe('setForceLists', () => {
+    it('stores the lists, and an empty set removes them', () => {
+      const lists = [{ name: 'Bench', rows: [{ variable: 'EmergencyOk', value: 'TRUE' }] }]
+      store.getState().projectActions.setForceLists(lists)
+      expect(store.getState().project.data.forceLists).toEqual(lists)
+      store.getState().projectActions.setForceLists([])
+      expect(store.getState().project.data.forceLists).toBeUndefined()
+    })
+  })
+
   describe('setInstances', () => {
     it('replaces all instances', () => {
       store.getState().projectActions.createInstance({ data: makeInstance('Old') })

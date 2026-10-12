@@ -769,6 +769,18 @@
   background-color: #388e3c;
 }
 
+/* CODESYS-style forcing: a click on the value prepares it (F7 force, Ctrl+F7 write) */
+.oplc-monaco-wrapper .debug-inline-value {
+  cursor: pointer;
+}
+.oplc-monaco-wrapper .debug-inline-value.debug-inline-forced {
+  background-color: #e65100;
+}
+.oplc-monaco-wrapper .debug-inline-value.debug-inline-prepared {
+  outline: 1px dashed #2f81f7;
+  outline-offset: 1px;
+}
+
 /* Online-debugger breakpoint gutter + halted current-line (ST/IL) */
 .oplc-monaco-wrapper .debug-breakpoint-glyph {
   background-color: #e51400;

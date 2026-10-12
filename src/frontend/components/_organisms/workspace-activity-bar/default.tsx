@@ -20,6 +20,7 @@ import { StopIcon } from '../../../assets/icons/interface/Stop'
 import { useDebugPolling } from '../../../hooks/useDebugPolling'
 import { useDebugSession } from '../../../hooks/useDebugSession'
 import { useRunControlSync } from '../../../hooks/useRunControl'
+import { releaseForces } from '../../../services/forcing'
 import { executeSaveProject } from '../../../services/save-actions'
 import { useOpenPLCStore } from '../../../store'
 import type { RuntimeConnection } from '../../../store/slices/device/types'
@@ -926,6 +927,27 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
     // Toggle off
     if (workspace.isDebuggerVisible) {
+      // FORCES OUTLIVE THE LOGIN: they stay on the PLC until released. Say so, and let the
+      // operator choose, before the session that shows them goes.
+      const forced = workspace.debugPlcForces ? workspace.debugPlcForces.size : workspace.debugForcedVariables.size
+      if (forced > 0) {
+        useOpenPLCStore.getState().modalActions.openModal('debugger-message', {
+          type: 'warning',
+          title: 'Variables are forced',
+          message:
+            `${forced} variable(s) are forced on the PLC. A force stays on the PLC after logout, until it is ` +
+            'released, the PLC program is downloaded again or the PLC restarts.',
+          buttons: ['Release and log out', 'Keep forced and log out', 'Cancel'],
+          onResponse: (i: number) => {
+            if (i === 2) return
+            void (async () => {
+              if (i === 0) await releaseForces(debuggerPort)
+              await debugSession.stopSession()
+            })()
+          },
+        })
+        return
+      }
       await debugSession.stopSession()
       return
     }

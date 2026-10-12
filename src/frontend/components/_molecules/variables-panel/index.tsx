@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import type { DebugTreeNode } from '../../../../middleware/shared/ports/types'
 import ViewIcon from '../../../assets/icons/interface/View'
 import ZapIcon from '../../../assets/icons/interface/Zap'
+import { openPrepareDialog } from '../../../services/forcing'
 import { cn } from '../../../utils/cn'
 import {
   floatToBuffer,
@@ -255,15 +256,9 @@ const VariablesPanel = ({
     (e: React.MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      if (contextMenuState) {
-        setPendingForceContext({
-          compositeKey: contextMenuState.compositeKey,
-          lookupKey: contextMenuState.lookupKey,
-          variableType: contextMenuState.variableType,
-        })
-      }
+      // CODESYS-style: the shared prepare dialog; F7 / Ctrl+F7 sends it.
+      if (contextMenuState) openPrepareDialog(contextMenuState.lookupKey)
       handleCloseContextMenu()
-      setForceValueModalOpen(true)
     },
     [contextMenuState, handleCloseContextMenu],
   )
@@ -465,20 +460,20 @@ const VariablesPanel = ({
                 className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                 onClick={(e) => void handleForceTrue(e)}
               >
-                <p>Force True</p>
+                <p>Prepare TRUE</p>
               </div>
               <div
                 className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                 onClick={(e) => void handleForceFalse(e)}
               >
-                <p>Force False</p>
+                <p>Prepare FALSE</p>
               </div>
               {isForced && (
                 <div
                   className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                   onClick={(e) => void handleReleaseForce(e)}
                 >
-                  <p>Release Force</p>
+                  <p>Prepare release</p>
                 </div>
               )}
             </>
@@ -488,14 +483,14 @@ const VariablesPanel = ({
                 className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                 onClick={(e) => void handleForceValue(e)}
               >
-                <p>Force Value</p>
+                <p>Prepare value…</p>
               </div>
               {isForced && (
                 <div
                   className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                   onClick={(e) => void handleReleaseForce(e)}
                 >
-                  <p>Release Force</p>
+                  <p>Prepare release</p>
                 </div>
               )}
             </>

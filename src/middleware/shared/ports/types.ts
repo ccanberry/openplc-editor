@@ -475,6 +475,16 @@ export interface PLCProjectData {
   hmiPublish?: {
     assignments: Record<string, string>
   }
+  /** Force lists (CODESYS-style forcing): named sets of variables with values, carried with
+   *  the project. Deploying one while logged in PREPARES its values, as if each variable had
+   *  been clicked; F7 forces them, Ctrl+F7 writes them. Absent when the project has none. */
+  forceLists?: PLCForceList[]
+}
+
+export interface PLCForceList {
+  name: string
+  /** `variable` as a person writes it: a global (`EmergencyOk`) or `PLC_PRG.var`. */
+  rows: { variable: string; value: string }[]
 }
 
 /** Alias used by Monaco completion providers */

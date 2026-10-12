@@ -1,9 +1,11 @@
 import { ColumnFiltersState, createColumnHelper, OnChangeFn } from '@tanstack/react-table'
+import { useEffect, useMemo } from 'react'
 
 import type { PLCVariable } from '../../../../middleware/shared/ports/types'
 import { usePouSnapshot } from '../../../hooks/use-pou-snapshot'
 import { useOpenPLCStore } from '../../../store'
 import { GenericTable } from '../../_atoms/generic-table'
+import { LiveValueCell } from '../../_features/[workspace]/forcing/live-value-cell'
 import {
   EditableDocumentationCell,
   EditableInitialValueCell,
@@ -113,6 +115,18 @@ const columns = [
   columnHelper.accessor('debug', { header: 'Debug', size: 64, minSize: 64, maxSize: 64, cell: SelectableDebugCell }),
 ]
 
+/** While logged in (a PROGRAM's table): the live value; a click prepares it. */
+const liveColumnFor = (pouName: string) =>
+  columnHelper.display({
+    id: 'liveValue',
+    header: 'Value',
+    size: 180,
+    minSize: 96,
+    maxSize: 300,
+    enableResizing: true,
+    cell: (props) => <LiveValueCell variableKey={`${pouName}:${props.row.original.name}`} />,
+  })
+
 type PLCVariablesTableProps = {
   tableData: PLCVariable[]
   filterValue?: string
@@ -143,10 +157,22 @@ const VariablesTable = ({
   const { captureAndPush } = usePouSnapshot()
 
   const pou = pous.find((p) => p.name === name)
+  const isDebuggerVisible = useOpenPLCStore((s) => s.workspace.isDebuggerVisible)
+  const setExtraKeys = useOpenPLCStore((s) => s.workspaceActions.setDebugExtraKeys)
+  const isProgram = pou?.pouType === 'program'
+  const shownColumns = useMemo(() => {
+    if (!isProgram) return columns
+    if (!isDebuggerVisible) return columnsPrograms
+    return [...columnsPrograms.slice(0, 2), liveColumnFor(name), ...columnsPrograms.slice(2)]
+  }, [isProgram, isDebuggerVisible, name])
+  useEffect(() => {
+    setExtraKeys('pou-table', isProgram && isDebuggerVisible ? tableData.map((v) => `${name}:${v.name}`) : [])
+    return () => setExtraKeys('pou-table', [])
+  }, [isProgram, isDebuggerVisible, tableData, name, setExtraKeys])
 
   return (
     <GenericTable<PLCVariable>
-      columns={pou?.pouType !== 'program' ? columns : columnsPrograms}
+      columns={shownColumns}
       tableData={tableData}
       selectedRow={selectedRow}
       handleRowClick={handleRowClick}

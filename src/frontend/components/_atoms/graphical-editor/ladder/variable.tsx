@@ -5,7 +5,8 @@ import { PLCVariable } from '../../../../../middleware/shared/ports'
 import { useDebugger } from '../../../../../middleware/shared/providers'
 import { useDebugCompositeKey } from '../../../../hooks/use-debug-composite-key'
 import { useDebugValue, useIsDebuggerVisible } from '../../../../hooks/use-debug-value'
-import { forceDebugVariable, releaseDebugVariable } from '../../../../services/debug-force-variable'
+import { forceDebugVariable } from '../../../../services/debug-force-variable'
+import { openPrepareDialog, prepareFor } from '../../../../services/forcing'
 import { resolveScopeExpressionType } from '../../../../services/graphical-scope'
 import { useOpenPLCStore } from '../../../../store'
 import { RungLadderState } from '../../../../store/slices/ladder'
@@ -250,28 +251,29 @@ const VariableElement = (block: VariableProps) => {
     e.preventDefault()
     e.stopPropagation()
     setIsContextMenuOpen(false)
-    if (data.variable.name) await forceDebugVariable(debugger_, compositeKey, debugIndex, new Uint8Array([1]), true)
+    if (data.variable.name) prepareFor(compositeKey, 'TRUE')
   }
 
   const handleForceFalse = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsContextMenuOpen(false)
-    if (data.variable.name) await forceDebugVariable(debugger_, compositeKey, debugIndex, new Uint8Array([0]), false)
+    if (data.variable.name) prepareFor(compositeKey, 'FALSE')
   }
 
   const handleReleaseForce = async (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsContextMenuOpen(false)
-    if (data.variable.name) await releaseDebugVariable(debugger_, compositeKey, debugIndex)
+    if (data.variable.name) prepareFor(compositeKey, null)
   }
 
   const handleForceValueOpen = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsContextMenuOpen(false)
-    setForceValueModalOpen(true)
+    // CODESYS-style: the shared prepare dialog; F7 / Ctrl+F7 sends it.
+    openPrepareDialog(compositeKey)
   }
 
   const handleForceValueConfirm = async () => {
@@ -464,20 +466,20 @@ const VariableElement = (block: VariableProps) => {
                       className='flex w-full cursor-pointer items-center gap-2 rounded-t-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                       onClick={(e) => void handleForceTrue(e)}
                     >
-                      <p>Force True</p>
+                      <p>Prepare TRUE</p>
                     </div>
                     <div
                       className='flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                       onClick={(e) => void handleForceFalse(e)}
                     >
-                      <p>Force False</p>
+                      <p>Prepare FALSE</p>
                     </div>
                     {isForced && (
                       <div
                         className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                         onClick={(e) => void handleReleaseForce(e)}
                       >
-                        <p>Release Force</p>
+                        <p>Prepare release</p>
                       </div>
                     )}
                   </>
@@ -494,7 +496,7 @@ const VariableElement = (block: VariableProps) => {
                         className='flex w-full cursor-pointer items-center gap-2 rounded-b-lg px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900'
                         onClick={(e) => void handleReleaseForce(e)}
                       >
-                        <p>Release Force</p>
+                        <p>Prepare release</p>
                       </div>
                     )}
                   </>

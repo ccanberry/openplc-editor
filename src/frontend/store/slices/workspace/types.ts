@@ -24,6 +24,19 @@ export type PlcFilters = {
 }
 
 // ---------------------------------------------------------------------------
+// CODESYS-style forcing: prepared values (F7 force / Ctrl+F7 write)
+// ---------------------------------------------------------------------------
+
+/** One leaf of the running program's debug map. */
+export type DebugLeafInfo = { path: string; type: string; hidden?: boolean }
+
+/** A value prepared for the next Write / Force; `value` null = release the force at F7. */
+export type DebugPreparedValue = { index: number; type: string; value: string | null }
+
+/** The variable whose prepare dialog is open. */
+export type DebugPrepareTarget = { path: string; index: number; type: string; enumValues?: string[] }
+
+// ---------------------------------------------------------------------------
 // Project tree
 // ---------------------------------------------------------------------------
 
@@ -123,6 +136,21 @@ export type WorkspaceState = {
      *  MD5 verification runs before any force / read transaction so
      *  the value is correct by the time any swap path executes. */
     debugTargetEndian: 'le' | 'be'
+    // -------- CODESYS-style forcing --------
+    /** Every leaf of the running program's map by packed address: its path and type. */
+    debugLeaves: Map<number, DebugLeafInfo>
+    /** Values prepared for the next Write (Ctrl+F7) / Force (F7), keyed by debug-map path.
+     *  Session-only: nothing is sent until F7 / Ctrl+F7. */
+    debugPrepared: Map<string, DebugPreparedValue>
+    /** What the PLC holds forced (FC 0x4F), debug-map path -> forced value as shown; null
+     *  when the PLC cannot say (older core or program) -- then only this editor's own forces
+     *  are known (debugForcedVariables). */
+    debugPlcForces: Map<string, string> | null
+    /** Keys views want polled beyond the code on screen (force lists, the resource's global
+     *  variables), by the view that asks. A key is a composite key or a debug-map path. */
+    debugExtraKeys: Record<string, string[]>
+    /** The variable whose prepare dialog is open. */
+    debugPrepareTarget: DebugPrepareTarget | null
     // Project loading state
     isProjectLoading: boolean
     projectLoadingMessage: string
@@ -207,6 +235,14 @@ export type WorkspaceActions = {
   clearDebugState: () => void
   clearFbDebugContext: () => void
   removeDebugVariable: (compositeKey: string) => void
+  // CODESYS-style forcing
+  setDebugLeaves: (leaves: Map<number, DebugLeafInfo>) => void
+  /** Prepare `path` (null entry = remove the preparation). */
+  setDebugPrepared: (path: string, entry: DebugPreparedValue | null) => void
+  clearDebugPrepared: () => void
+  setDebugPlcForces: (forces: Map<string, string> | null) => void
+  setDebugExtraKeys: (source: string, keys: string[]) => void
+  setDebugPrepareTarget: (target: DebugPrepareTarget | null) => void
   // Project loading
   setProjectLoading: (isLoading: boolean, message?: string) => void
   // Persist-permission flag (backend write access on the open project)

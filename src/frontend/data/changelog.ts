@@ -12,6 +12,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.0',
+    date: '2026-10-12',
+    changes: [
+      'Forcing as in CODESYS, while logged in: click a variable\'s live value to PREPARE a value -- in the ST/IL code, on an LD contact or coil, in the watch list, in a program\'s variable table or in the resource\'s global variables (new Value column). A BOOL click cycles <TRUE> / <FALSE> / none; other types open a small dialog. Nothing is sent until Force values (F7) forces every prepared value, or Write values (Ctrl+F7) writes them once; Alt+F7 releases every force. The PLC applies all of them in the same scan.',
+      'Forced values are marked F (orange) everywhere, read from the PLC itself: forces set from another PC, a tool or before this login show too. The new Forces tab lists everything the PLC holds forced, with Unforce selected / Unforce all. Logging out with forces active asks whether to release them or keep them on the PLC.',
+      'Force lists, saved with the project: named sets of variables and values (a bench simulation, a tank test). Deploy prepares a whole list at once, exactly as if each variable had been clicked; F7 then forces it. A force list replaces RoboStudio\'s Force tab.',
+      'An online change keeps the forces. Needs core 1.8.0 on the board; on an older core forcing still works, but only the forces set from this editor are known.',
+    ],
+  },
+  {
     version: '1.9.1',
     date: '2026-10-12',
     changes: [

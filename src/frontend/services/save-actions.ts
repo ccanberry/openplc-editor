@@ -92,6 +92,9 @@ function buildProjectJsonContent(state: StoreState): string {
         libraries,
         debugVariables,
         ...(hmiPublish ? { hmiPublish } : {}),
+        ...(project.data.forceLists && project.data.forceLists.length > 0
+          ? { forceLists: project.data.forceLists }
+          : {}),
       },
     },
     null,

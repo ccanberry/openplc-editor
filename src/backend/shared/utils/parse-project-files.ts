@@ -73,6 +73,8 @@ export interface ParsedProjectData {
      *  published variables never renumber across builds.  Absent for
      *  projects with no published globals. */
     hmiPublish?: { assignments: Record<string, string> }
+    /** Force lists carried with the project (see PLCProjectData.forceLists). */
+    forceLists?: { name: string; rows: { variable: string; value: string }[] }[]
   }
   deviceConfiguration?: DeviceConfiguration
   /** Pin mappings parsed from `devices/pin-mapping.json`. Forwarded
@@ -564,6 +566,9 @@ export function parseProjectFiles(
       ...(metaType === 'plc-library' ? { libraryManifest } : {}),
       debugVariables: data.debugVariables as ParsedProjectData['projectData']['debugVariables'],
       ...(data.hmiPublish ? { hmiPublish: data.hmiPublish as { assignments: Record<string, string> } } : {}),
+      ...(Array.isArray(data.forceLists)
+        ? { forceLists: data.forceLists as { name: string; rows: { variable: string; value: string }[] }[] }
+        : {}),
     },
     deviceConfiguration,
     devicePinMapping,
