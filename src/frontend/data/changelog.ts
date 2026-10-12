@@ -14,7 +14,10 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     version: '1.7.1',
     date: '2026-10-12',
-    changes: ['The OpenPLC Suite opens full-screen (F11 leaves it).'],
+    changes: [
+      'The OpenPLC Suite opens full-screen (F11 leaves it).',
+      'Global variables: the group buttons are filters. Pressing one or more shows only the variables of those groups, and a pressed button is plainly lit (it used to hide the group and dim the button). "Remove all filters" shows everything again.',
+    ],
   },
   {
     version: '1.7.0',

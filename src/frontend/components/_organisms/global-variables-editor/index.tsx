@@ -71,12 +71,13 @@ const GlobalVariablesEditor = () => {
   })
 
   /**
-   * Collapsible GVL groups. Rows are grouped by their `group` label
-   * (default "Global"); collapsing a group hides its rows through a
+   * GVL group filters. Rows are grouped by their `group` label (default
+   * "Global"); activating one or more groups shows only their rows, through a
    * column filter, which keeps row ids index-based on the flat data —
-   * selection / add / remove / rearrange semantics stay untouched.
+   * selection / add / remove / rearrange semantics stay untouched. With no
+   * group active every row is shown.
    */
-  const [collapsedGroups, setCollapsedGroups] = useState<string[]>([])
+  const [activeGroups, setActiveGroups] = useState<string[]>([])
   const groupSummaries = useMemo(() => {
     const counts = new Map<string, number>()
     for (const variable of tableData) {
@@ -87,10 +88,9 @@ const GlobalVariablesEditor = () => {
   }, [tableData])
   const showGroupHeaders =
     groupSummaries.length > 1 || (groupSummaries.length === 1 && groupSummaries[0].name !== 'Global')
-  const groupColumnFilters: ColumnFiltersState =
-    collapsedGroups.length > 0 ? [{ id: 'group', value: collapsedGroups }] : []
-  const toggleGroupCollapsed = (group: string) => {
-    setCollapsedGroups((current) =>
+  const groupColumnFilters: ColumnFiltersState = activeGroups.length > 0 ? [{ id: 'group', value: activeGroups }] : []
+  const toggleGroupFilter = (group: string) => {
+    setActiveGroups((current) =>
       current.includes(group) ? current.filter((name) => name !== group) : [...current, group],
     )
   }
@@ -452,25 +452,37 @@ const GlobalVariablesEditor = () => {
       {editorVariables.display === 'table' && showGroupHeaders && (
         <div aria-label='Global variable groups' className='flex flex-wrap items-center gap-2'>
           {groupSummaries.map(({ name, count }) => {
-            const isCollapsed = collapsedGroups.includes(name)
+            const isActive = activeGroups.includes(name)
             return (
               <button
                 key={name}
-                aria-label={`Toggle group ${name}`}
-                aria-expanded={!isCollapsed}
-                onClick={() => toggleGroupCollapsed(name)}
+                aria-label={`Filter group ${name}`}
+                aria-pressed={isActive}
+                onClick={() => toggleGroupFilter(name)}
                 className={cn(
-                  'flex select-none items-center gap-1 rounded-md border border-neutral-300 px-2 py-0.5 font-caption text-xs',
-                  'text-neutral-850 hover:border-brand dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-brand',
-                  { 'opacity-60': isCollapsed },
+                  'flex select-none items-center gap-1 rounded-md border px-2 py-0.5 font-caption text-xs transition-colors',
+                  isActive
+                    ? 'border-brand bg-brand font-semibold text-white shadow-sm'
+                    : 'border-neutral-300 text-neutral-850 hover:border-brand dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-brand',
                 )}
               >
-                <span className={cn('inline-block transition-transform', { '-rotate-90': isCollapsed })}>&#9662;</span>
                 <span>{name}</span>
-                <span className='opacity-60'>({count})</span>
+                <span className={isActive ? 'opacity-90' : 'opacity-60'}>({count})</span>
               </button>
             )
           })}
+          <button
+            aria-label='Remove all filters'
+            disabled={activeGroups.length === 0}
+            onClick={() => setActiveGroups([])}
+            className={cn(
+              'select-none rounded-md border border-neutral-300 px-2 py-0.5 font-caption text-xs text-neutral-850 transition-colors',
+              'hover:border-brand disabled:cursor-default disabled:opacity-40 disabled:hover:border-neutral-300',
+              'dark:border-neutral-800 dark:text-neutral-300 dark:disabled:hover:border-neutral-800',
+            )}
+          >
+            Remove all filters
+          </button>
         </div>
       )}
       {editorVariables.display === 'table' && (

@@ -50,11 +50,10 @@ const columns = [
     minSize: 96,
     maxSize: 240,
     cell: EditableGroupCell,
-    // Collapsible-group support: the editor passes the COLLAPSED group
-    // names as the filter value; a row stays visible while its group is
-    // not collapsed. Row ids stay index-based on the unfiltered data,
-    // so selection / add / remove semantics are untouched.
-    filterFn: (row, _columnId, collapsedGroups: string[]) => !collapsedGroups.includes(groupOfVariable(row.original)),
+    // Group filters: the editor passes the ACTIVE group names as the filter value; with
+    // none active every row is shown, otherwise only the rows of an active group.
+    filterFn: (row, _columnId, activeGroups: string[]) =>
+      activeGroups.length === 0 || activeGroups.includes(groupOfVariable(row.original)),
   }),
   columnHelper.accessor('type', {
     header: 'Type',
