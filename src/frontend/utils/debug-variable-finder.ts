@@ -28,6 +28,25 @@ export function findInstanceName(pouName: string, instances: PLCInstanceMapping[
 }
 
 /**
+ * The instance a PROGRAM's variables are mapped under: its task instance, or -- a PROGRAM that
+ * another POU calls and no task runs (the CODESYS rule: the POU is its own instance) -- the
+ * program itself, under its bare name (`TANK_STIRRERS.TON_A1.ET`). With `mappedPaths` given,
+ * the program counts only when the map holds one of its variables (a program nobody calls has
+ * none); without it, every program counts.
+ */
+export function resolveProgramInstanceName(
+  pouName: string,
+  instances: PLCInstanceMapping[],
+  mappedPaths?: string[],
+): string | null {
+  const byTask = findInstanceName(pouName, instances)
+  if (byTask) return byTask
+  if (!mappedPaths) return pouName
+  const prefix = pouName.toUpperCase() + '.'
+  return mappedPaths.some((p) => p.startsWith(prefix)) ? pouName : null
+}
+
+/**
  * Check if a path part is an array index (e.g., "[0]", "[1]", etc.)
  */
 const isArrayIndex = (part: string): boolean => {

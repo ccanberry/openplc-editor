@@ -185,7 +185,11 @@ export function useDebugSession(): UseDebugSessionReturn {
         const indexMap = deriveVariableIndexMap(treeMap, debugMap)
 
         // Build FB instance map
-        const fbDebugInstancesMap = buildFbInstanceMap(project.data.pous, instances)
+        const fbDebugInstancesMap = buildFbInstanceMap(
+          project.data.pous,
+          instances,
+          debugMap.leaves.map((l) => l.path),
+        )
 
         const fbTypesCount = fbDebugInstancesMap.size
         const totalFbInstances = Array.from(fbDebugInstancesMap.values()).reduce((sum, list) => sum + list.length, 0)

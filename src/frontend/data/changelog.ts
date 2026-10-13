@@ -12,6 +12,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.1',
+    date: '2026-10-13',
+    changes: [
+      'Live values in every program, not only PLC_PRG: a PROGRAM called from another POU (CODESYS style, e.g. TANK_STIRRERS from PLC_PRG) has no task instance of its own, and its variables and the function block instances it declares showed no values. They are now found under the program\'s own name.',
+      'A breakpoint stop brings its POU on screen with the cursor on the halted line. The new Follow box in the run-control strip turns this off; it is on after installation.',
+      'The resource\'s global variables have a None filter: it hides every row and collapses the list. The chosen filter is remembered.',
+      'The PLC log no longer fills with "Failed to send plugin command (unexpected): Socket not connected" while a board configuration tab is open: the PLC runs on the board, so this PC answers that its plugins are there.',
+    ],
+  },
+  {
     version: '1.10.0',
     date: '2026-10-12',
     changes: [

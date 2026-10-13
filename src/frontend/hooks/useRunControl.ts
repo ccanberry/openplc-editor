@@ -23,8 +23,9 @@
 import { useCallback, useEffect, useRef } from 'react'
 
 import { useDebugger } from '../../middleware/shared/providers'
+import { isFollowBreakpointOn, openPouTab } from '../services/follow-breakpoint'
 import { openPLCStoreBase, useOpenPLCStore } from '../store'
-import { resolveBreakpointIds } from '../utils/debug-breakpoints'
+import { checkpointLocation, resolveBreakpointIds } from '../utils/debug-breakpoints'
 
 /** Halt-state poll cadence.  Fast enough that a breakpoint hit feels
  *  immediate, cheap enough (one tiny PDU) to sit next to variable polling. */
@@ -56,6 +57,11 @@ export function useRunControlSync(): void {
     const { debugHalted, debugStoppedCheckpointId } = openPLCStoreBase.getState().workspace
     if (nextHalted !== debugHalted || nextId !== debugStoppedCheckpointId) {
       workspaceActions.setDebugHalt(nextHalted, nextId)
+      // A new stop: bring its POU on screen; the editor puts the cursor on the line.
+      if (nextHalted && nextId !== null && isFollowBreakpointOn()) {
+        const loc = checkpointLocation(openPLCStoreBase.getState().workspace.debugCheckpointMap, nextId)
+        if (loc) openPouTab(loc.pou)
+      }
     }
   }, [debuggerPort, workspaceActions])
 

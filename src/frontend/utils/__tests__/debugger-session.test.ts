@@ -459,6 +459,25 @@ describe('buildDebugVariableTreeMap', () => {
     expect(trees).toHaveLength(0)
   })
 
+  it('maps a PROGRAM called from another (no task instance) under its own name', () => {
+    const called = makePou('Tanks', 'program', [makeBaseVariable('Level', 'INT')])
+    const uncalled = makePou('Spare', 'program', [makeBaseVariable('X', 'INT')])
+    const projectData = { dataTypes: [] as PLCDataType[], pous: [called, uncalled] }
+    const debugVars = [makeDebugVar('TANKS.LEVEL', 'INT_ENUM', 7)]
+
+    const { treeMap, warnings } = buildDebugVariableTreeMap(
+      [called, uncalled],
+      [],
+      debugVars,
+      projectData,
+      SYSTEM_LIBS,
+    )
+
+    expect(treeMap.get('Tanks:Level')?.debugIndex).toBe(7)
+    expect(treeMap.has('Spare:X')).toBe(false)
+    expect(warnings).toEqual(["No instance found for program 'Spare', skipping debug variable parsing."])
+  })
+
   it('swallows errors from buildDebugTree and continues', () => {
     // Create a variable that would cause issues but should be swallowed
     const badVar: PLCVariable = {
@@ -599,6 +618,20 @@ describe('buildFbInstanceMap', () => {
     const result = buildFbInstanceMap([program], instances)
 
     expect(result.size).toBe(0)
+  })
+
+  it('lists FB instances of a called PROGRAM (its own instance) when the map holds it', () => {
+    const customFb = makePou('MyFB', 'function-block', [])
+    const called = makePou('Motors', 'program', [makeDerivedVariable('mixer', 'MyFB')])
+    const uncalled = makePou('Spare', 'program', [makeDerivedVariable('fb1', 'MyFB')])
+
+    const result = buildFbInstanceMap([called, uncalled, customFb], [], ['MOTORS.MIXER.Q'])
+
+    expect(result.get('MYFB')).toEqual([
+      { fbTypeName: 'MyFB', programName: 'Motors', programInstanceName: 'Motors', fbVariableName: 'mixer', key: 'Motors:mixer' },
+    ])
+    // without a map every program counts as its own instance
+    expect(buildFbInstanceMap([uncalled, customFb], []).get('MYFB')?.[0].programInstanceName).toBe('Spare')
   })
 
   it('skips non-derived variables', () => {

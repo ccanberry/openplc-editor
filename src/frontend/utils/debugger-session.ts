@@ -18,7 +18,7 @@ import type {
 import type { DebugMap, DebugVariableEntry } from './debug-parser'
 import { packDebugAddr } from './debug-parser'
 import { buildDebugTree } from './debug-tree-builder'
-import { buildDebugPathPrefix, findInstanceName, type PLCInstanceMapping } from './debug-variable-finder'
+import { buildDebugPathPrefix, type PLCInstanceMapping, resolveProgramInstanceName } from './debug-variable-finder'
 
 // ---------------------------------------------------------------------------
 // 0. logCompilerEvent — shared log helper for compile/debug progress
@@ -171,6 +171,8 @@ export function buildDebugVariableTreeMap(
     program: inst.program,
   }))
 
+  const mappedPaths = debugVariables.map((dv) => dv.name)
+
   const addNodeAndChildrenToMap = (node: DebugTreeNode) => {
     treeMap.set(node.compositeKey, node)
     if (node.children) {
@@ -183,7 +185,7 @@ export function buildDebugVariableTreeMap(
   pous.forEach((pou) => {
     if (pou.pouType !== 'program') return
 
-    const instanceName = findInstanceName(pou.name, instanceMappings)
+    const instanceName = resolveProgramInstanceName(pou.name, instanceMappings, mappedPaths)
     if (!instanceName) {
       warnings.push(`No instance found for program '${pou.name}', skipping debug variable parsing.`)
       return
@@ -241,7 +243,11 @@ export function buildDebugVariableTreeMap(
  * Build a map of FB type name (uppercased) -> FbInstanceInfo[] for all
  * derived-type variables that are function blocks.
  */
-export function buildFbInstanceMap(pous: PLCPou[], instances: PLCInstance[]): Map<string, FbInstanceInfo[]> {
+export function buildFbInstanceMap(
+  pous: PLCPou[],
+  instances: PLCInstance[],
+  mappedPaths?: string[],
+): Map<string, FbInstanceInfo[]> {
   const fbDebugInstancesMap = new Map<string, FbInstanceInfo[]>()
 
   const instanceMappings: PLCInstanceMapping[] = instances.map((inst) => ({
@@ -252,7 +258,7 @@ export function buildFbInstanceMap(pous: PLCPou[], instances: PLCInstance[]): Ma
   pous.forEach((pou) => {
     if (pou.pouType !== 'program') return
 
-    const instanceName = findInstanceName(pou.name, instanceMappings)
+    const instanceName = resolveProgramInstanceName(pou.name, instanceMappings, mappedPaths)
     if (!instanceName) return
 
     const variables = pou.interface?.variables ?? []

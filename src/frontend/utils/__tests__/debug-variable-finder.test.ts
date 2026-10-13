@@ -13,8 +13,7 @@ import {
   findVariableIndexWithFallback,
   getFieldIndexFromMapWithFallback,
   getIndexFromMapWithFallback,
-  type PLCInstanceMapping,
-} from '../debug-variable-finder'
+  type PLCInstanceMapping, resolveProgramInstanceName } from '../debug-variable-finder'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -299,5 +298,17 @@ describe('appendToDebugPath', () => {
 
   it('handles already uppercased child name', () => {
     expect(appendToDebugPath('INSTANCE0', 'VAR')).toBe('INSTANCE0.VAR')
+  })
+})
+
+describe('resolveProgramInstanceName', () => {
+  const instances = [{ name: 'instance0', program: 'PLC_PRG' }]
+  it('prefers the task instance', () => {
+    expect(resolveProgramInstanceName('plc_prg', instances, [])).toBe('instance0')
+  })
+  it('takes a called program as its own instance when the map holds its variables', () => {
+    expect(resolveProgramInstanceName('Tanks', instances, ['TANKS.LEVEL'])).toBe('Tanks')
+    expect(resolveProgramInstanceName('Tanks', instances, ['OTHER.LEVEL'])).toBeNull()
+    expect(resolveProgramInstanceName('Tanks', instances)).toBe('Tanks')
   })
 })

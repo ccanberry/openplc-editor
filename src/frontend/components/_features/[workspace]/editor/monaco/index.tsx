@@ -8,11 +8,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PLCPou } from '../../../../../../middleware/shared/ports/types'
 import { useAI, useCapabilities, useProject } from '../../../../../../middleware/shared/providers'
 import { useDebugBoolValuesMap, useDebugNonBoolValuesMap } from '../../../../../hooks/use-debug-value'
+import { isFollowBreakpointOn } from '../../../../../services/follow-breakpoint'
 import { clickToPrepare } from '../../../../../services/forcing'
 import { executeSaveActiveFile, executeSaveProject } from '../../../../../services/save-actions'
 import { pouUri } from '../../../../../services/st-lsp'
 import { openPLCStoreBase, useOpenPLCStore } from '../../../../../store'
-import { preparedLabel } from '../../../../../utils/forcing'
 import { applyAcceptedHunks, computeHunks } from '../../../../../utils/ai-diff-review'
 import {
   breakpointableLines,
@@ -20,6 +20,7 @@ import {
   checkpointLocation,
   parseBreakpointKey,
 } from '../../../../../utils/debug-breakpoints'
+import { preparedLabel } from '../../../../../utils/forcing'
 import { getExtensionFromLanguage, getFolderFromPouType } from '../../../../../utils/PLC/pou-file-extensions'
 import { parseHybridPouFromString, parseTextualPouFromString } from '../../../../../utils/PLC/pou-text-parser'
 import { Modal, ModalContent, ModalTitle } from '../../../../_molecules/modal'
@@ -37,9 +38,9 @@ import {
   tableGlobalVariablesCompletion,
   tableVariablesCompletion,
 } from './completion'
+import { ensureDebugHoverProvider } from './debug-hover-provider'
 import { parsePouToStText } from './drag-and-drop/st'
 import { cleanupPythonLSP, initPythonLSP, setupPythonLSPForEditor, updatePythonLspContext } from './python-lsp'
-import { ensureDebugHoverProvider } from './debug-hover-provider'
 import { applyThemeNow, ensureOpenplcThemes } from './theme-utils'
 
 type monacoEditorProps = {
@@ -687,6 +688,8 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
           },
         })
         editor.revealLineInCenterIfOutsideViewport(loc.line)
+        // Follow the breakpoint: the cursor goes to the stopped line too.
+        if (isFollowBreakpointOn()) editor.setPosition({ lineNumber: loc.line, column: 1 })
       }
     }
 

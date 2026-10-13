@@ -18,6 +18,27 @@ import { toast } from '../../_features/[app]/toast/use-toast'
 import { GlobalVariablesTable, groupOfVariable } from '../../_molecules/global-variables-table'
 import { VariablesCodeEditor } from '../variables-code-editor'
 
+/** Filter value of the "None" chip: no row has this group, so every row is hidden. */
+const NO_GROUP = '\u0000none'
+const GROUP_FILTER_KEY = 'oplc.resource.group-filter'
+
+const loadGroupFilter = (): string[] => {
+  try {
+    const value: unknown = JSON.parse(window.localStorage.getItem(GROUP_FILTER_KEY) ?? '[]')
+    return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+const saveGroupFilter = (groups: string[]) => {
+  try {
+    window.localStorage.setItem(GROUP_FILTER_KEY, JSON.stringify(groups))
+  } catch {
+    // the filter just isn't remembered
+  }
+}
+
 const GlobalVariablesEditor = () => {
   const ROWS_NOT_SELECTED = -1
   const {
@@ -75,9 +96,17 @@ const GlobalVariablesEditor = () => {
    * "Global"); activating one or more groups shows only their rows, through a
    * column filter, which keeps row ids index-based on the flat data —
    * selection / add / remove / rearrange semantics stay untouched. With no
-   * group active every row is shown.
+   * group active every row is shown. "None" hides every row (collapses the
+   * list) and is exclusive with the groups; the choice survives tab switches.
    */
-  const [activeGroups, setActiveGroups] = useState<string[]>([])
+  const [activeGroups, setActiveGroupsState] = useState<string[]>(loadGroupFilter)
+  const setActiveGroups = (next: string[] | ((current: string[]) => string[])) =>
+    setActiveGroupsState((current) => {
+      const value = typeof next === 'function' ? next(current) : next
+      saveGroupFilter(value)
+      return value
+    })
+  const noneActive = activeGroups.includes(NO_GROUP)
   const groupSummaries = useMemo(() => {
     const counts = new Map<string, number>()
     for (const variable of tableData) {
@@ -86,14 +115,15 @@ const GlobalVariablesEditor = () => {
     }
     return Array.from(counts, ([name, count]) => ({ name, count }))
   }, [tableData])
-  const showGroupHeaders =
-    groupSummaries.length > 1 || (groupSummaries.length === 1 && groupSummaries[0].name !== 'Global')
+  const showGroupHeaders = groupSummaries.length > 0
   const groupColumnFilters: ColumnFiltersState = activeGroups.length > 0 ? [{ id: 'group', value: activeGroups }] : []
   const toggleGroupFilter = (group: string) => {
-    setActiveGroups((current) =>
-      current.includes(group) ? current.filter((name) => name !== group) : [...current, group],
-    )
+    setActiveGroups((current) => {
+      const groups = current.filter((name) => name !== NO_GROUP)
+      return groups.includes(group) ? groups.filter((name) => name !== group) : [...groups, group]
+    })
   }
+  const toggleNoneFilter = () => setActiveGroups(noneActive ? [] : [NO_GROUP])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const latestCodeRef = useRef(editorCode)
@@ -451,6 +481,20 @@ const GlobalVariablesEditor = () => {
       </div>
       {editorVariables.display === 'table' && showGroupHeaders && (
         <div aria-label='Global variable groups' className='flex flex-wrap items-center gap-2'>
+          <button
+            aria-label='Filter group None'
+            aria-pressed={noneActive}
+            onClick={toggleNoneFilter}
+            title='Hide every global variable (collapse the list)'
+            className={cn(
+              'flex select-none items-center gap-1 rounded-md border px-2 py-0.5 font-caption text-xs transition-colors',
+              noneActive
+                ? 'border-brand bg-brand font-semibold text-white shadow-sm'
+                : 'border-neutral-300 text-neutral-850 hover:border-brand dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-brand',
+            )}
+          >
+            None
+          </button>
           {groupSummaries.map(({ name, count }) => {
             const isActive = activeGroups.includes(name)
             return (
