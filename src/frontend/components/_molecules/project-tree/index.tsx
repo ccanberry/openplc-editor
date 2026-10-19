@@ -771,7 +771,9 @@ const ProjectTreeLeaf = ({
       )}
       onClick={(e) => {
         handleLeafSelection()
-        if (label === name) return
+        // The open POU's leaf does nothing -- except a function block while logged in: it asks
+        // again for its implementation or an instance (CODESYS).
+        if (label === name && !(leafType === 'function-block' && isDebuggerVisible)) return
         if (handleLeafClick) handleLeafClick(e)
       }}
       {...res}

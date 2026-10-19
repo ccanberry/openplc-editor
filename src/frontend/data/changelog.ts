@@ -12,6 +12,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.2',
+    date: '2026-10-19',
+    changes: [
+      'Build and Upload to a board whose PLC is stopped now succeeds: the program is downloaded and the PLC stays stopped (Start runs it), as in CODESYS. It used to report the upload as failed and cancel a Login with download, although the program was on the board.',
+      'Logged in, hovering shows the live value of whatever is under the mouse: an array (its elements), a function block instance or a structure (its members), or a member path such as TON0.Q or ARR[i].X with the index read live. Array elements are read from the PLC only while hovered.',
+      'Logged in, opening a function block from the project tree asks whether to show its implementation or one of its instances, arrays of the block included (PLC_PRG.Valves[3]); clicking it again while it is open asks again. The instance list above the code has Implementation too.',
+    ],
+  },
+  {
     version: '1.10.1',
     date: '2026-10-13',
     changes: [

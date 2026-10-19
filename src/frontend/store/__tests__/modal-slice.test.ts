@@ -106,6 +106,12 @@ describe('createModalSlice', () => {
     }
   })
 
+  it('closeModal closes the FB instance picker (Cancel and a pick both close it)', () => {
+    store.getState().modalActions.openModal('fb-instance-picker', { fbName: 'SCALE_AO' })
+    store.getState().modalActions.closeModal()
+    expect(store.getState().modals['fb-instance-picker']).toEqual({ open: false, data: null })
+  })
+
   // -------------------------------------------------------------------------
   // getModalState
   // -------------------------------------------------------------------------

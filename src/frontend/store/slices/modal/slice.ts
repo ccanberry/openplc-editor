@@ -22,6 +22,7 @@ const ALL_MODAL_TYPES: ModalTypes[] = [
   'server-ip-mismatch',
   'runtime-connection-lost',
   'debugger-message',
+  'fb-instance-picker',
   'debugger-ip-input',
   'missing-libraries',
   'public-catalog-browser',
