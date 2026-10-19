@@ -20,13 +20,14 @@
  *   - 5-s overall deadline (`timeoutMs`).
  *   - 150-ms interval between attempts.
  *   - `START:OK` or `ALREADY_RUNNING` in the runtime's reply → SUCCESS.
+ *   - `DOWNLOADED:STOPPED` → STOPPED: downloaded, the PLC stays stopped.
  *   - `BUSY` in the reply → keep retrying.
  *   - Any other reply → terminal failure (e.g. invalid program).
  *   - Network error on the fetch → terminal failure.
  *   - Deadline elapsed → TIMEOUT (a warning, not a fatal error).
  */
 
-export type StartPlcAfterBuildOutcome = 'STARTED' | 'FAILED' | 'TIMEOUT'
+export type StartPlcAfterBuildOutcome = 'STARTED' | 'STOPPED' | 'FAILED' | 'TIMEOUT'
 
 export type StartPlcAfterBuildLogLevel = 'info' | 'error' | 'warning'
 
@@ -72,6 +73,13 @@ export async function startPlcAfterBuild(opts: StartPlcAfterBuildOptions): Promi
     if (status.includes('START:OK') || status.includes('ALREADY_RUNNING')) {
       opts.onLog('info', 'PLC started.')
       return 'STARTED'
+    }
+
+    // MCM20.1: a download to a STOPPED PLC is complete with the PLC still stopped (CODESYS) --
+    // the board's runtime keeps it stopped on purpose and says so.  Not a failed start.
+    if (status.includes('DOWNLOADED:STOPPED')) {
+      opts.onLog('info', 'Program downloaded. The PLC was stopped before the upload and stays stopped: Start runs it.')
+      return 'STOPPED'
     }
 
     // Only BUSY is retryable — everything else is a real error

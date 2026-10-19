@@ -14,6 +14,7 @@ import { ConfirmDeleteProjectModal } from '../_organisms/modals/confirm-delete-p
 import { ConfirmInstallLibrariesModal } from '../_organisms/modals/confirm-install-libraries-modal'
 import { DebuggerMessageModal } from '../_organisms/modals/debugger-message-modal'
 import { ConfirmDeleteElementModal } from '../_organisms/modals/delete-confirmation-modal'
+import { FbInstancePickerModal } from '../_organisms/modals/fb-instance-picker-modal'
 import { MissingLibrariesModal } from '../_organisms/modals/missing-libraries-modal'
 import { ProjectReadmeModal } from '../_organisms/modals/project-readme-modal'
 import { PublicCatalogBrowserModal } from '../_organisms/modals/public-catalog-browser-modal'
@@ -134,6 +135,7 @@ const AppLayout = ({ children, ...rest }: AppLayoutProps): ReactNode => {
           )}
           {modals?.['runtime-connection-lost']?.open === true && <RuntimeConnectionLostModal />}
           {modals?.['debugger-message']?.open === true && <DebuggerMessageModal />}
+          {modals?.['fb-instance-picker']?.open === true && <FbInstancePickerModal />}
           {modals?.['missing-libraries']?.open === true && <MissingLibrariesModal />}
           {modals?.['public-catalog-browser']?.open === true && <PublicCatalogBrowserModal />}
           {modals?.['confirm-install-libraries']?.open === true && <ConfirmInstallLibrariesModal />}

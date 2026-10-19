@@ -602,6 +602,49 @@ describe('buildFbInstanceMap', () => {
     expect(result.get('MYFB')).toHaveLength(2)
   })
 
+  /** ARRAY [dimension] OF <user type>: an array of FBs or of structs. */
+  function makeUserArrayVariable(name: string, typeName: string, dimensions: string[]): PLCVariable {
+    return {
+      name,
+      class: 'local',
+      type: {
+        definition: 'array',
+        value: `ARRAY [${dimensions.join(',')}] OF ${typeName}`,
+        data: {
+          baseType: { definition: 'user-data-type', value: typeName },
+          dimensions: dimensions.map((dimension) => ({ dimension })),
+        },
+      },
+      location: '',
+      documentation: '',
+    }
+  }
+
+  it('lists every element of an ARRAY OF a custom FB as an instance', () => {
+    const customFb = makePou('MyFB', 'function-block', [])
+    const program = makePou('Main', 'program', [makeUserArrayVariable('valves', 'MyFB', ['1..3'])])
+
+    const result = buildFbInstanceMap([program, customFb], [makeInstance('INSTANCE0', 'Main')])
+
+    expect(result.get('MYFB')?.map((i) => i.key)).toEqual(['Main:valves[1]', 'Main:valves[2]', 'Main:valves[3]'])
+    expect(result.get('MYFB')?.[0].fbVariableName).toBe('valves[1]')
+  })
+
+  it('skips arrays of base types, of other types, and with a range it cannot read', () => {
+    const customFb = makePou('MyFB', 'function-block', [])
+    const program = makePou('Main', 'program', [
+      makeArrayVariable('ints', 'INT', '0..3'),
+      makeUserArrayVariable('recs', 'MyStruct', ['0..1']),
+      makeUserArrayVariable('odd', 'MyFB', ['N..M']),
+      makeUserArrayVariable('none', 'MyFB', []),
+      { ...makeArrayVariable('nodata', 'INT', '0..1'), type: { definition: 'array', value: 'ARRAY' } } as PLCVariable,
+    ])
+
+    const result = buildFbInstanceMap([program, customFb], [makeInstance('INSTANCE0', 'Main')])
+
+    expect(result.size).toBe(0)
+  })
+
   it('skips non-program POUs', () => {
     const fb = makePou('MyFB', 'function-block', [makeDerivedVariable('inner', 'MyFB')])
     const instances = [makeInstance('INSTANCE0', 'Main')]

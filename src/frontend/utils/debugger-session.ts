@@ -18,6 +18,7 @@ import type {
 import type { DebugMap, DebugVariableEntry } from './debug-parser'
 import { packDebugAddr } from './debug-parser'
 import { buildDebugTree } from './debug-tree-builder'
+import { parseArrayDimension } from './debug-tree-traversal'
 import { buildDebugPathPrefix, type PLCInstanceMapping, resolveProgramInstanceName } from './debug-variable-finder'
 
 // ---------------------------------------------------------------------------
@@ -262,27 +263,36 @@ export function buildFbInstanceMap(
     if (!instanceName) return
 
     const variables = pou.interface?.variables ?? []
-    variables.forEach((v: PLCVariable) => {
-      if (v.type.definition !== 'derived') return
-
-      const fbTypeNameRaw = v.type.value
+    const isCustomFB = (typeKey: string) =>
+      pous.some((p) => p.pouType === 'function-block' && p.name.toUpperCase() === typeKey)
+    const addInstance = (fbTypeNameRaw: string, fbVariableName: string) => {
       const fbTypeKey = fbTypeNameRaw.toUpperCase()
+      const instanceInfo: FbInstanceInfo = {
+        fbTypeName: fbTypeNameRaw,
+        programName: pou.name,
+        programInstanceName: instanceName,
+        fbVariableName,
+        key: `${pou.name}:${fbVariableName}`,
+      }
+      const existingInstances = fbDebugInstancesMap.get(fbTypeKey) || []
+      existingInstances.push(instanceInfo)
+      fbDebugInstancesMap.set(fbTypeKey, existingInstances)
+    }
 
-      const isCustomFB = pous.some((p) => p.pouType === 'function-block' && p.name.toUpperCase() === fbTypeKey)
-
-      // Accept derived types as FB instances if they are custom FBs or match any POU
-      if (isCustomFB) {
-        const instanceInfo: FbInstanceInfo = {
-          fbTypeName: fbTypeNameRaw,
-          programName: pou.name,
-          programInstanceName: instanceName,
-          fbVariableName: v.name,
-          key: `${pou.name}:${v.name}`,
-        }
-
-        const existingInstances = fbDebugInstancesMap.get(fbTypeKey) || []
-        existingInstances.push(instanceInfo)
-        fbDebugInstancesMap.set(fbTypeKey, existingInstances)
+    variables.forEach((v: PLCVariable) => {
+      if (v.type.definition === 'derived') {
+        // Accept derived types as FB instances if they are custom FBs
+        if (isCustomFB(v.type.value.toUpperCase())) addInstance(v.type.value, v.name)
+        return
+      }
+      // An ARRAY OF a custom FB: every element is an instance, named as the debug tree names it
+      // (`ARR[i]`, IEC index, first dimension -- debug-tree-traversal.ts).
+      if (v.type.definition === 'array' && v.type.data) {
+        const { baseType, dimensions } = v.type.data
+        if (baseType.definition !== 'user-data-type' || !isCustomFB(baseType.value.toUpperCase())) return
+        const range = dimensions.length > 0 ? parseArrayDimension(dimensions[0].dimension) : null
+        if (!range) return
+        for (let i = range[0]; i <= range[1]; i++) addInstance(baseType.value, `${v.name}[${i}]`)
       }
     })
   })

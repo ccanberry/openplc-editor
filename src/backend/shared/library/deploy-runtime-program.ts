@@ -23,6 +23,8 @@ import { startPlcAfterBuild, type StartPlcAfterBuildOptions } from './start-plc-
 
 export type DeployRuntimeProgramOutcome =
   | 'STARTED'
+  /** Downloaded to a PLC that was stopped and stays stopped -- a complete download. */
+  | 'DOWNLOADED_STOPPED'
   | 'UPLOAD_FAILED'
   | 'BUILD_FAILED'
   | 'BUILD_TIMEOUT'
@@ -109,6 +111,7 @@ export async function deployRuntimeProgram(opts: DeployRuntimeProgramOptions): P
     pollIntervalMs: opts.startIntervalMs,
   })
   if (startOutcome === 'STARTED') return 'STARTED'
+  if (startOutcome === 'STOPPED') return 'DOWNLOADED_STOPPED'
   if (startOutcome === 'TIMEOUT') return 'START_TIMEOUT'
   return 'START_FAILED'
 }

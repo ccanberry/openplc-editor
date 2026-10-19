@@ -451,7 +451,7 @@ export function createEditorCompilerPlatformPort(
           startIntervalMs: context.startIntervalMs,
         })
 
-        return { ok: deployOutcome === 'STARTED' }
+        return { ok: deployOutcome === 'STARTED' || deployOutcome === 'DOWNLOADED_STOPPED' }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         log(`Runtime v4 upload failed: ${message}`, 'error')
@@ -552,7 +552,7 @@ export function createEditorCompilerPlatformPort(
           startTimeoutMs: context.startTimeoutMs,
           startIntervalMs: context.startIntervalMs,
         })
-        return { ok: deployOutcome === 'STARTED' }
+        return { ok: deployOutcome === 'STARTED' || deployOutcome === 'DOWNLOADED_STOPPED' }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         log(`Runtime v3 upload failed: ${message}`, 'error')

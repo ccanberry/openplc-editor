@@ -237,8 +237,9 @@ export const NavigationPanelBreadcrumbs = ({
             value={selectedInstanceKey || ''}
             onChange={(e) => onInstanceChange?.(e.target.value)}
             className='h-5 cursor-pointer rounded border border-neutral-300 bg-white px-1 font-caption text-[10px] font-medium text-neutral-850 outline-none focus:border-brand focus:ring-1 focus:ring-brand dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-300'
-            title='Select FB instance to debug'
+            title='Implementation, or the FB instance whose values to show'
           >
+            <option value=''>Implementation</option>
             {fbInstances.map((inst) => (
               <option key={inst.key} value={inst.key}>
                 {inst.programName}.{inst.fbVariableName}

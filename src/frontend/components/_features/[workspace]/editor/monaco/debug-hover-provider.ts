@@ -1,27 +1,34 @@
 /**
- * Debug hover provider (M0 online monitoring).
+ * Debug hover provider (logged in).
  *
  * While a debug session is active (`workspace.isDebuggerVisible`), hovering an
- * identifier in an ST/IL POU shows its live polled value + forced state — the
- * same values the inline `= value` decorations render (see the
- * `debugVarPositions` block in ./index.tsx), surfaced on demand for the token
- * under the cursor. This is the "hover to see the value on the current line"
- * affordance; the inline decorations cover the always-on case.
+ * identifier in an ST/IL POU shows its live value + forced state, as CODESYS
+ * does -- for a scalar, and also for an array, an FB instance or a struct (a
+ * table of its elements / members) and for a member path (`TON0.Q`,
+ * `ARR[i].X`, with a variable index read live).
  *
  * Registered ONCE per Monaco namespace (module singleton) and reads live store
  * state inside the callback, so it never closes over stale debug values and
  * never double-registers across the many MonacoEditor mounts.
  *
- * Reuses the existing debug data plane end-to-end: values come from the poller
- * (useDebugPolling) via `workspace.debugBoolValues` / `debugNonBoolValues`,
- * keyed by composite key `"<pou>:<var>"` (or `"<program>:<fbVar>.<member>"`
- * for FB instances). No new transport or protocol.
+ * Values come from the poller (useDebugPolling) via `workspace.debugBoolValues`
+ * / `debugNonBoolValues`, keyed by composite key `"<pou>:<var>"` (or
+ * `"<program>:<fbVar>.<member>"` inside an FB instance). What the code on screen
+ * does not poll (an array's elements) is asked for while hovered
+ * (`debugExtraKeys.hover`) and dropped a few seconds later.
  */
 import type * as monacoT from 'monaco-editor'
 
 import { openPLCStoreBase } from '../../../../../store'
+import {
+  expressionAt,
+  HOVER_WATCH_TTL_MS,
+  relativeName,
+  resolveHoverKeys,
+} from '../../../../../utils/debug-hover'
 
 let registered = false
+let dropWatchTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
  * Best-effort POU name from a Monaco model URI. ST models live under
@@ -36,41 +43,43 @@ function pouNameFromUri(uri: string): string | null {
   return base.replace(/\.\w+$/, '') || null
 }
 
-interface DebugHit {
-  value: string
-  forced: boolean
+/** The composite-key prefix of `pouName`'s scope; null for an FB shown as its implementation. */
+function scopePrefix(pouName: string): string | null {
+  const { project, workspace } = openPLCStoreBase.getState()
+  const pou = project.data.pous.find((p) => p.name.toLowerCase() === pouName.toLowerCase())
+  if (!pou || pou.pouType !== 'function-block') return `${pou?.name ?? pouName}:`
+  const fbTypeKey = pou.name.toUpperCase()
+  const selected = workspace.fbSelectedInstance.get(fbTypeKey)
+  const inst = (workspace.fbDebugInstances.get(fbTypeKey) ?? []).find((i) => i.key === selected)
+  return inst ? `${inst.programName}:${inst.fbVariableName}.` : null
 }
 
-/**
- * Resolve the live value + forced flag for `word` in `pouName`'s scope. IEC
- * identifiers are case-insensitive, and the typed token's case may differ from
- * the declared name that keys the value maps, so all comparisons are
- * case-insensitive. Scope-local (`<pou>:<word>`) wins; otherwise fall back to
- * any key ending in `:<word>` or `.<word>` (shared globals / FB members).
- */
-function lookup(word: string, pouName: string | null): DebugHit | null {
-  const { debugBoolValues, debugNonBoolValues, debugForcedVariables } = openPLCStoreBase.getState().workspace
+function readValue(key: string): string | undefined {
+  const { debugBoolValues, debugNonBoolValues } = openPLCStoreBase.getState().workspace
+  return debugBoolValues.get(key) ?? debugNonBoolValues.get(key)
+}
 
-  const readForced = (key: string): boolean => debugForcedVariables.has(key)
+/** Ask the poller for `keys` now, and stop asking HOVER_WATCH_TTL_MS after the last hover.
+ *  True when they were not being asked for already. */
+function watch(keys: string[]): boolean {
+  const { workspace, workspaceActions } = openPLCStoreBase.getState()
+  const before = workspace.debugExtraKeys.hover ?? []
+  const isNew = before.length !== keys.length || keys.some((k, i) => before[i] !== k)
+  if (isNew) workspaceActions.setDebugExtraKeys('hover', keys)
+  if (dropWatchTimer) clearTimeout(dropWatchTimer)
+  dropWatchTimer = setTimeout(() => {
+    dropWatchTimer = null
+    openPLCStoreBase.getState().workspaceActions.setDebugExtraKeys('hover', [])
+  }, HOVER_WATCH_TTL_MS)
+  return isNew
+}
 
-  if (pouName) {
-    const wantLocal = `${pouName}:${word}`.toLowerCase()
-    for (const map of [debugBoolValues, debugNonBoolValues]) {
-      for (const [key, value] of map) {
-        if (key.toLowerCase() === wantLocal) return { value, forced: readForced(key) }
-      }
-    }
+/** Wait (briefly) until the poller has brought a value for each of `keys`. */
+async function waitForValues(keys: string[], timeoutMs = 800): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline && keys.some((k) => readValue(k) === undefined)) {
+    await new Promise((resolve) => setTimeout(resolve, 50))
   }
-
-  const wantColon = `:${word}`.toLowerCase()
-  const wantDot = `.${word}`.toLowerCase()
-  for (const map of [debugBoolValues, debugNonBoolValues]) {
-    for (const [key, value] of map) {
-      const lower = key.toLowerCase()
-      if (lower.endsWith(wantColon) || lower.endsWith(wantDot)) return { value, forced: readForced(key) }
-    }
-  }
-  return null
 }
 
 /**
@@ -84,18 +93,54 @@ export function ensureDebugHoverProvider(monaco: typeof monacoT): void {
 
   for (const languageId of ['st', 'il']) {
     monaco.languages.registerHoverProvider(languageId, {
-      provideHover(model, position) {
+      async provideHover(model, position) {
         if (!openPLCStoreBase.getState().workspace.isDebuggerVisible) return null
         const word = model.getWordAtPosition(position)
         if (!word) return null
+        const expression = expressionAt(model.getLineContent(position.lineNumber), position.column)
+        if (!expression) return null
+        const range = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn)
 
-        const hit = lookup(word.word, pouNameFromUri(model.uri.toString()))
-        if (!hit) return null
+        const pouName = pouNameFromUri(model.uri.toString())
+        if (!pouName) return null
+        const prefix = scopePrefix(pouName)
+        if (prefix === null) {
+          return {
+            range,
+            contents: [{ value: `**${expression}**: this is the implementation -- choose an instance to see values` }],
+          }
+        }
 
-        const forcedNote = hit.forced ? '  \n\n_forced_' : ''
+        const { workspace } = openPLCStoreBase.getState()
+        const resolved = resolveHoverKeys(expression, prefix, workspace.debugVariableIndexes.keys(), readValue)
+        if (!resolved) return null
+
+        // Newly asked-for keys may hold a value from an earlier hover: let one poll (200 ms)
+        // refresh them first.
+        const isNew = watch(resolved.keys)
+        if (isNew) await new Promise((resolve) => setTimeout(resolve, 250))
+        await waitForValues(resolved.keys)
+
+        const forced = openPLCStoreBase.getState().workspace.debugForcedVariables
+        const show = (key: string) => {
+          const value = readValue(key)
+          return `${value === undefined ? '...' : value}${forced.has(key) ? '  (forced)' : ''}`
+        }
+
+        // A leaf: one value.
+        if (resolved.keys.length === 1 && resolved.keys[0] === resolved.baseKey) {
+          return { range, contents: [{ value: `**${resolved.path}** = \`${show(resolved.baseKey)}\`` }] }
+        }
+
+        // An array / FB instance / struct: its elements or members.
+        const lines = resolved.keys.map((k) => `${relativeName(resolved.baseKey, k)} = ${show(k)}`)
+        const more =
+          resolved.total > resolved.keys.length
+            ? `\n\n_${resolved.total - resolved.keys.length} more -- hover an element (e.g. ${resolved.path}[n]) to see it_`
+            : ''
         return {
-          range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
-          contents: [{ value: `**${word.word}** = \`${hit.value}\`${forcedNote}` }],
+          range,
+          contents: [{ value: `**${resolved.path}**\n\n\`\`\`\n${lines.join('\n')}\n\`\`\`${more}` }],
         }
       },
     })

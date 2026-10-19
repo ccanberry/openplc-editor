@@ -25,6 +25,9 @@ export type ModalTypes =
   | 'server-ip-mismatch'
   | 'runtime-connection-lost'
   | 'debugger-message'
+  /** Logged in, opening a function block: show its implementation or one of its instances
+   *  (CODESYS "Implementation / Instance"). Data: `FbInstancePickerData`. */
+  | 'fb-instance-picker'
   | 'debugger-ip-input'
   | 'missing-libraries'
   /** Browse the autonomy-edge public library catalog.  Replaces the

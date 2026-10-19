@@ -121,6 +121,18 @@ describe('deployRuntimeProgram', () => {
     expect(outcome).toBe('START_FAILED')
   })
 
+  it('returns DOWNLOADED_STOPPED when the board keeps its stopped PLC stopped', async () => {
+    const outcome = await deployRuntimeProgram({
+      uploadProgram: async () => ({ success: true }),
+      fetchCompilationStatus: makeStatusFetcher({ status: 'SUCCESS', logs: [], exit_code: 0 }),
+      fetchStartResponse: makeStartFetcher('DOWNLOADED:STOPPED (the program is on the board)'),
+      onLog: () => {},
+      pollIntervalMs: 1,
+      startIntervalMs: 1,
+    })
+    expect(outcome).toBe('DOWNLOADED_STOPPED')
+  })
+
   it('returns START_TIMEOUT when the runtime answers BUSY past the deadline', async () => {
     const outcome = await deployRuntimeProgram({
       uploadProgram: async () => ({ success: true }),

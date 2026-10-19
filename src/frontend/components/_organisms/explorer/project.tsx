@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { projectCapabilities } from '../../../../middleware/shared/ports/types'
 import { useCapabilities, useProject } from '../../../../middleware/shared/providers'
 import { FolderIcon } from '../../../assets/icons/interface/Folder'
+import { openFunctionBlock } from '../../../services/fb-instance-picker'
 import { useOpenPLCStore } from '../../../store'
 import { extractSearchQuery } from '../../../store/slices/search/utils'
 import type { TabsProps } from '../../../store/slices/tabs'
@@ -228,11 +229,14 @@ const Project = () => {
                   leafType='function-block'
                   label={searchQuery ? extractSearchQuery(pou.name, searchQuery) : pou.name}
                   onClick={() =>
-                    handleCreateTab({
-                      name: pou.name,
-                      path: `/data/pous/function-block/${pou.name}`,
-                      elementType: { type: 'function-block', language: pou.body.language as PouLeafLang },
-                    })
+                    // Logged in: implementation or which instance (CODESYS) -- asked first.
+                    openFunctionBlock(pou.name, () =>
+                      handleCreateTab({
+                        name: pou.name,
+                        path: `/data/pous/function-block/${pou.name}`,
+                        elementType: { type: 'function-block', language: pou.body.language as PouLeafLang },
+                      }),
+                    )
                   }
                 />
               ))}

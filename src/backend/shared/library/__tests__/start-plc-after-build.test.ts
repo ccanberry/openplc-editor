@@ -68,6 +68,20 @@ describe('startPlcAfterBuild', () => {
     expect(logs[logs.length - 1].message).toContain('ERROR:INVALID_PROGRAM')
   })
 
+  it('resolves STOPPED, not FAILED, on a download to a stopped PLC', async () => {
+    const { fetch, calls } = scriptedFetch(['DOWNLOADED:STOPPED (the program is on the board)'])
+    const logs: Array<{ level: string; message: string }> = []
+    const outcome = await startPlcAfterBuild({
+      fetchStart: fetch,
+      onLog: (level, message) => logs.push({ level, message }),
+      pollIntervalMs: 1,
+    })
+    expect(outcome).toBe('STOPPED')
+    expect(calls()).toBe(1)
+    expect(logs[logs.length - 1].level).toBe('info')
+    expect(logs[logs.length - 1].message).toContain('stays stopped')
+  })
+
   it('bails with FAILED on a network error', async () => {
     const { fetch } = scriptedFetch([{ error: 'ECONNRESET' }])
     const logs: Array<{ level: string; message: string }> = []
