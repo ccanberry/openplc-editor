@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.3',
+    date: '2026-10-19',
+    changes: [
+      'RoboCNC link library: RCNC_NC_SYNC reports the nozzle tip as well as the axes (TIP_X/Y/Z = axis minus the controller\'s active tool, with TOOL_NO and TOOL_X/Y/Z), the position the Eckelmann control reported. For core 2.0.0, where the controller keeps the tool active: upload the machine\'s PLC program again so its position checks compare tip heights. On an older core the tip equals the axis, as before.',
+    ],
+  },
+  {
     version: '1.10.2',
     date: '2026-10-19',
     changes: [
