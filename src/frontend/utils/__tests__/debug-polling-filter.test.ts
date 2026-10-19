@@ -110,6 +110,19 @@ describe('buildActiveIndexSet', () => {
   })
 
   describe('watched variables (debug === true)', () => {
+    it('takes the watch list instead of the Debug flags when one is given', () => {
+      const pou = makePou('Main', 'program', [makeVariable('SPEED', 'local', true)])
+      const indexMap = new Map([
+        ['Main:SPEED', 10],
+        ['Main:TEMP', 11],
+      ])
+      const state = makeState({ pous: [pou], debugVariableIndexes: indexMap })
+      const allLeaves = new Map<number, { compositeKey: string; type: string }[]>()
+
+      expect(buildActiveIndexSet(state, allLeaves, null, true, ['Main:TEMP']).activeIndexes).toEqual([11])
+      expect(buildActiveIndexSet(state, allLeaves, null, true, []).activeIndexes).toEqual([])
+    })
+
     it('collects watched variables from a program POU', () => {
       const pou = makePou('Main', 'program', [
         makeVariable('SPEED', 'local', true),
@@ -525,6 +538,28 @@ describe('buildActiveIndexSet', () => {
       // Cache should have been replaced
       expect(cacheResult).not.toBe(cached)
       expect(cacheResult?.pouName).toBe('Main')
+    })
+
+    it('reads none of the code\'s variables with live values off', () => {
+      const pou = makePou('Main', 'program', [makeVariable('X', 'local')], 'st')
+      const cached: VisibleVarsCache = {
+        pouName: 'Main',
+        language: 'st',
+        fbContextKey: '',
+        keys: new Set(['Main:X']),
+      }
+      const state = makeState({
+        pous: [pou],
+        editorName: 'Main',
+        editorLanguage: 'st',
+        debugVariableIndexes: new Map([['Main:X', 7]]),
+      })
+      const allLeaves = new Map<number, { compositeKey: string; type: string }[]>()
+
+      expect(buildActiveIndexSet(state, allLeaves, cached).activeIndexes).toContain(7)
+      const off = buildActiveIndexSet(state, allLeaves, cached, false)
+      expect(off.activeIndexes).not.toContain(7)
+      expect(off.cacheResult).toBe(cached)
     })
 
     it('skips diagram/source scan when currentPou is not found', () => {

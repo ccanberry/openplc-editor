@@ -495,6 +495,9 @@ const rendererProcessBridge = {
     password: string,
   ): Promise<{ success: boolean; accessToken?: string; error?: string }> =>
     ipcRenderer.invoke('runtime:login', ipAddress, username, password),
+  /** Log in with the account the OpenPLC Suite set up for its appliance (main process only). */
+  runtimeLoginSuite: (ipAddress: string): Promise<{ success: boolean; accessToken?: string; error?: string }> =>
+    ipcRenderer.invoke('runtime:login-suite', ipAddress),
   runtimeGetStatus: (
     ipAddress: string,
     includeStats?: boolean,

@@ -311,4 +311,10 @@ describe('resolveProgramInstanceName', () => {
     expect(resolveProgramInstanceName('Tanks', instances, ['OTHER.LEVEL'])).toBeNull()
     expect(resolveProgramInstanceName('Tanks', instances)).toBe('Tanks')
   })
+  it('takes a program of only VAR_EXTERNALs, whose paths are all globals', () => {
+    const ext = [{ class: 'external' }, { class: 'external' }]
+    expect(resolveProgramInstanceName('Messages', instances, ['OTHER.LEVEL'], ext)).toBe('Messages')
+    expect(resolveProgramInstanceName('Messages', instances, ['OTHER.LEVEL'], [])).toBeNull()
+    expect(resolveProgramInstanceName('Messages', instances, ['OTHER.LEVEL'], [{ class: 'local' }])).toBeNull()
+  })
 })

@@ -33,15 +33,21 @@ export function findInstanceName(pouName: string, instances: PLCInstanceMapping[
  * program itself, under its bare name (`TANK_STIRRERS.TON_A1.ET`). With `mappedPaths` given,
  * the program counts only when the map holds one of its variables (a program nobody calls has
  * none); without it, every program counts.
+ *
+ * A program that declares ONLY VAR_EXTERNALs (Cubotonic's MESSAGES, MIXING_HEAD) has no variable
+ * of its own in the map -- its externals are mapped as the globals they are -- so the map cannot
+ * vouch for it; it counts anyway, because every one of its paths is a global path.
  */
 export function resolveProgramInstanceName(
   pouName: string,
   instances: PLCInstanceMapping[],
   mappedPaths?: string[],
+  variables?: { class?: string }[],
 ): string | null {
   const byTask = findInstanceName(pouName, instances)
   if (byTask) return byTask
   if (!mappedPaths) return pouName
+  if (variables && variables.length > 0 && variables.every((v) => v.class === 'external')) return pouName
   const prefix = pouName.toUpperCase() + '.'
   return mappedPaths.some((p) => p.startsWith(prefix)) ? pouName : null
 }

@@ -5,6 +5,8 @@ import type { DebugTreeNode } from '../../../../middleware/shared/ports/types'
 import ViewIcon from '../../../assets/icons/interface/View'
 import ZapIcon from '../../../assets/icons/interface/Zap'
 import { openPrepareDialog } from '../../../services/forcing'
+import { addWatch, removeWatch, resolveWatch, suggestWatch, useWatchList } from '../../../services/watch-list'
+import { useOpenPLCStore } from '../../../store'
 import { cn } from '../../../utils/cn'
 import {
   floatToBuffer,
@@ -340,6 +342,23 @@ const VariablesPanel = ({
     }
   }, [])
 
+  // THE WATCH LIST: type a variable, Enter adds it (services/watch-list).
+  const watched = useWatchList()
+  const debugVariableTree = useOpenPLCStore((s) => s.workspace.debugVariableTree)
+  const [watchText, setWatchText] = useState('')
+  const [watchError, setWatchError] = useState('')
+  const watchSuggestions = suggestWatch(watchText, debugVariableTree.keys())
+  const commitWatch = () => {
+    const key = resolveWatch(watchText, debugVariableTree.keys())
+    if (!key) {
+      setWatchError(watchText.trim() ? `no variable "${watchText.trim()}" in the running program` : '')
+      return
+    }
+    addWatch(key)
+    setWatchText('')
+    setWatchError('')
+  }
+
   const renderTreeView = () => {
     if (!variableTree || variableTree.size === 0) return null
 
@@ -359,6 +378,7 @@ const VariablesPanel = ({
             getForcedValue={getForcedValue}
             canForce={canForceVariable}
             onRowClick={handleRowClick}
+            onRemove={watched.includes(node.compositeKey) ? removeWatch : undefined}
           />
         ))}
       </div>
@@ -447,7 +467,30 @@ const VariablesPanel = ({
       <div className='flex h-full w-full min-w-52 flex-col gap-2 overflow-hidden rounded-lg border-[0.75px] border-neutral-200 bg-white p-2 text-cp-sm font-medium text-neutral-1000 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-50'>
         <div className='flex h-7 w-[90px] select-none items-center gap-1 rounded-lg bg-neutral-100 p-1 text-cp-sm dark:bg-brand-dark'>
           <ZapIcon className='h-4 w-4' />
-          <p>Variables</p>
+          <p>Watch</p>
+        </div>
+        <div className='flex flex-col gap-1'>
+          <input
+            type='text'
+            list='watch-suggestions'
+            value={watchText}
+            placeholder='variable to watch, e.g. PLC_PRG.Speed, then Enter'
+            title='Type a variable (POU.name, a global, a member or an array element) and press Enter to watch it'
+            onChange={(e) => {
+              setWatchText(e.target.value)
+              setWatchError('')
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitWatch()
+            }}
+            className='h-7 w-full rounded-md border border-neutral-300 bg-white px-2 text-cp-sm text-neutral-850 outline-none focus:border-brand dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300'
+          />
+          <datalist id='watch-suggestions'>
+            {watchSuggestions.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+          {watchError && <p className='text-cp-sm text-red-500'>{watchError}</p>}
         </div>
         {variableTree && variableTree.size > 0 ? renderTreeView() : renderFlatView()}
       </div>

@@ -4,10 +4,19 @@ describe('expressionAt', () => {
   const line = '  x := ARR[i].Q AND TON0.Q OR Valves[ 2 ].Out;'
   const col = (needle: string, offset = 0) => line.indexOf(needle) + 1 + offset
 
-  it('is the word alone when nothing chains before it', () => {
-    expect(expressionAt(line, col('ARR'))).toBe('ARR')
-    expect(expressionAt(line, col('ARR', 2))).toBe('ARR')
+  it('is the word alone when nothing chains before or after it', () => {
     expect(expressionAt(line, col('x'))).toBe('x')
+  })
+
+  it('takes the [index] groups after the hovered word: the element, not the array', () => {
+    expect(expressionAt(line, col('ARR'))).toBe('ARR[i]')
+    expect(expressionAt(line, col('ARR', 2))).toBe('ARR[i]')
+    expect(expressionAt(line, col('Valves'))).toBe('Valves[2]')
+    const nested = 'y := AX[P_VAL[1700]].Q;'
+    expect(expressionAt(nested, nested.indexOf('AX') + 1)).toBe('AX[P_VAL[1700]]')
+    expect(expressionAt(nested, nested.indexOf('P_VAL') + 1)).toBe('P_VAL[1700]')
+    expect(expressionAt('z := AX[ 3 ][1];', 'z := '.length + 1)).toBe('AX[3][1]')
+    expect(expressionAt('z := AX[open', 'z := '.length + 1)).toBe('AX')
   })
 
   it('takes the .member and [index] steps before the hovered word', () => {
@@ -47,8 +56,11 @@ describe('resolveHoverKeys', () => {
     'MAIN:Valves[1].Out',
     'MAIN:Valves[2].Out',
     'OTHER:GlobalSpeed',
+    'MAIN:P[1]',
+    'MAIN:P[2]',
+    'MAIN:P[3]',
   ]
-  const values: Record<string, string> = { 'MAIN:i': '2', 'MAIN:j': 'TRUE' }
+  const values: Record<string, string> = { 'MAIN:i': '2', 'MAIN:j': 'TRUE', 'MAIN:P[1]': '2.0', 'MAIN:P[2]': '2.5' }
   const read = (k: string) => values[k]
 
   it('resolves a leaf to itself, case-insensitively', () => {
@@ -57,7 +69,25 @@ describe('resolveHoverKeys', () => {
       keys: ['MAIN:counter'],
       total: 1,
       baseKey: 'MAIN:counter',
+      indexKeys: [],
     })
+  })
+
+  it('reads an index that is itself an element, and reports the variables it read', () => {
+    const r = resolveHoverKeys('ARR[P[1]]', 'MAIN:', keys, read)
+    expect(r?.keys).toEqual(['MAIN:ARR[2]'])
+    expect(r?.indexKeys).toEqual(['MAIN:P[1]'])
+    expect(resolveHoverKeys('ARR[P[i]]', 'MAIN:', keys, read)?.indexKeys).toEqual(['MAIN:i', 'MAIN:P[2]'])
+  })
+
+  it('shows the whole array while an index value is unknown or not whole', () => {
+    const unknown = resolveHoverKeys('ARR[P[3]]', 'MAIN:', keys, read)
+    expect(unknown?.baseKey).toBe('MAIN:ARR')
+    expect(unknown?.indexKeys).toEqual(['MAIN:P[3]'])
+    expect(resolveHoverKeys('ARR[P[2]]', 'MAIN:', keys, read)?.baseKey).toBe('MAIN:ARR')
+    expect(resolveHoverKeys('ARR[TON0]', 'MAIN:', keys, read)?.baseKey).toBe('MAIN:ARR')
+    expect(resolveHoverKeys('ARR[]', 'MAIN:', keys, read)?.baseKey).toBe('MAIN:ARR')
+    expect(resolveHoverKeys('ARR[ ]', 'MAIN:', keys, read)?.baseKey).toBe('MAIN:ARR')
   })
 
   it('resolves an array to its elements, in index order', () => {

@@ -12,7 +12,7 @@ import {
   EditableLocationCell,
   EditableNameCell,
 } from './editable-cell'
-import { SelectableClassCell, SelectableDebugCell, SelectableTypeCell } from './selectable-cell'
+import { SelectableClassCell, SelectableTypeCell } from './selectable-cell'
 
 const columnHelper = createColumnHelper<PLCVariable>()
 
@@ -65,7 +65,6 @@ const columnsPrograms = [
     maxSize: 468,
     cell: EditableDocumentationCell,
   }),
-  columnHelper.accessor('debug', { header: 'Debug', size: 64, minSize: 64, maxSize: 64, cell: SelectableDebugCell }),
 ]
 
 const columns = [
@@ -112,7 +111,6 @@ const columns = [
     maxSize: 568,
     cell: EditableDocumentationCell,
   }),
-  columnHelper.accessor('debug', { header: 'Debug', size: 64, minSize: 64, maxSize: 64, cell: SelectableDebugCell }),
 ]
 
 /** While logged in (a PROGRAM's table): the live value; a click prepares it. */

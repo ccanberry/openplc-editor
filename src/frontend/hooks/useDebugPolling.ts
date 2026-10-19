@@ -30,6 +30,8 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { DebugConnectionType, DebugTreeNode } from '../../middleware/shared/ports/types'
 import { useCapabilities, useDebugger } from '../../middleware/shared/providers'
 import { leavesByPath, refreshPlcForces } from '../services/forcing'
+import { isLiveValuesOn, useLivePeriod, useLiveValuesOn } from '../services/live-values'
+import { getWatchList, useWatchList } from '../services/watch-list'
 import { openPLCStoreBase, useOpenPLCStore } from '../store'
 import { buildActiveIndexSet } from '../utils/debug-polling-filter'
 import { applySwapToVariableBytes } from '../utils/endian'
@@ -250,7 +252,13 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
     // Use cached active indexes — only rebuild when invalidation triggers change
     if (!activeIndexesRef.current) {
       const state = openPLCStoreBase.getState()
-      const { activeIndexes, cacheResult } = buildActiveIndexSet(state, allLeaves, visibleVarsCacheRef.current)
+      const { activeIndexes, cacheResult } = buildActiveIndexSet(
+        state,
+        allLeaves,
+        visibleVarsCacheRef.current,
+        isLiveValuesOn(),
+        getWatchList(),
+      )
       if (cacheResult !== visibleVarsCacheRef.current) {
         visibleVarsCacheRef.current = cacheResult
       }
@@ -458,6 +466,15 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
   // on board target since the same board can speak RTU, TCP, etc. The
   // workspace activity bar sets this when the debug session connects.
   const debugConnectionType = useOpenPLCStore((state) => state.workspace.debugConnectionType)
+  // Live values (run-control strip): on/off and the period over TCP (services/live-values).
+  const liveOn = useLiveValuesOn()
+  const livePeriodS = useLivePeriod()
+  const watchList = useWatchList()
+  useEffect(() => {
+    // the set of variables read changes with the switch and the watch list: rebuild it
+    activeIndexesRef.current = null
+    visibleVarsCacheRef.current = null
+  }, [liveOn, watchList])
 
   // Set up polling interval when debugger becomes visible.
   useEffect(() => {
@@ -482,7 +499,7 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
         ? RTU_POLL_INTERVAL_MS
         : usesHttpFallback
           ? HTTP_FALLBACK_POLL_INTERVAL_MS
-          : DEFAULT_POLL_INTERVAL_MS
+          : Math.round(livePeriodS * 1000) || DEFAULT_POLL_INTERVAL_MS
 
       // Fire first poll immediately, then schedule at fixed rate
       // Skip tick if previous poll is still in progress (isPolling guard)
@@ -540,6 +557,7 @@ export function useDebugPolling({ debugTreesRef }: UseDebugPollingOptions): void
     sessionDebugTransport,
     capabilities.isNativeApplication,
     workspaceActions,
+    livePeriodS,
   ])
 
   // Clean up on unmount

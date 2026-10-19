@@ -9,6 +9,7 @@ beforeEach(() => {
 
   window.bridge = {
     runtimeLogin: jest.fn().mockResolvedValue({ success: true, accessToken: 'jwt-token-123' }),
+    runtimeLoginSuite: jest.fn().mockResolvedValue({ success: true, accessToken: 'jwt-suite' }),
     runtimeCreateUser: jest.fn().mockResolvedValue({ success: true }),
     runtimeGetUsersInfo: jest.fn().mockResolvedValue({ hasUsers: true, runtimeVersion: '4.0.0' }),
     runtimeGetStatus: jest.fn().mockResolvedValue({ success: true, status: 'RUNNING' }),
@@ -75,6 +76,28 @@ describe('login', () => {
     const result = await adapter.login({ username: 'admin', password: 'secret' })
 
     expect(result).toEqual({ success: false, error: 'IPC failed' })
+  })
+})
+
+describe('loginWithSuiteAccount', () => {
+  it('asks main to log in with the Suite account and marks the session active', async () => {
+    const result = await adapter.loginWithSuiteAccount!()
+    expect(window.bridge.runtimeLoginSuite).toHaveBeenCalledWith('192.168.1.100')
+    expect(result).toEqual({ success: true, accessToken: 'jwt-suite' })
+    expect(adapter.isReadyForDebug!()).toBe(true)
+  })
+
+  it('stays logged out when main has no Suite account', async () => {
+    ;(window.bridge.runtimeLoginSuite as jest.Mock).mockResolvedValue({ success: false, error: 'no' })
+    const result = await adapter.loginWithSuiteAccount!()
+    expect(result.success).toBe(false)
+    expect(adapter.isReadyForDebug!()).toBe(false)
+  })
+
+  it('returns an error without an IP', async () => {
+    mockIpAddress = ''
+    const result = await adapter.loginWithSuiteAccount!()
+    expect(result).toEqual({ success: false, error: 'No runtime IP address configured' })
   })
 })
 

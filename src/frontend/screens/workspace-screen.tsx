@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ImperativePanelHandle } from 'react-resizable-panels'
 import { useShallow } from 'zustand/react/shallow'
 
+import type { DebugTreeNode } from '../../middleware/shared/ports/types'
 import { projectCapabilities } from '../../middleware/shared/ports/types'
 import {
   useCapabilities,
@@ -59,6 +60,7 @@ import {
 } from '../hooks/use-debug-value'
 import { useRuntimePolling } from '../hooks/use-runtime-polling'
 import { setPrepared, targetForKey } from '../services/forcing'
+import { setWatchProject, useWatchList, watchDisplay } from '../services/watch-list'
 import { useOpenPLCStore } from '../store'
 import { cn } from '../utils/cn'
 import { toast } from '../utils/toast'
@@ -86,7 +88,6 @@ const WorkspaceScreen = () => {
   // tab switches — no dispose churn, no view-state loss.
   const editors = useOpenPLCStore(useCallback((s) => s.editors, []))
   const searchResults = useOpenPLCStore(useCallback((s) => s.searchResults, []))
-  const pous = useOpenPLCStore(useCallback((s) => s.project.data.pous, []))
   const projectPath = useOpenPLCStore(useCallback((s) => s.project.meta.path, []))
   const projectType = useOpenPLCStore(useCallback((s) => s.project.meta.type, []))
   // Project-type capability matrix.  Combines with `capabilities`
@@ -102,8 +103,6 @@ const WorkspaceScreen = () => {
     debugVariableTree,
     debugVariableIndexes,
     debugExpandedNodes,
-    fbSelectedInstance,
-    fbDebugInstances,
   } = useOpenPLCStore(
     useShallow((s) => ({
       isCollapsed: s.workspace.isCollapsed,
@@ -112,8 +111,6 @@ const WorkspaceScreen = () => {
       debugVariableTree: s.workspace.debugVariableTree,
       debugVariableIndexes: s.workspace.debugVariableIndexes,
       debugExpandedNodes: s.workspace.debugExpandedNodes,
-      fbSelectedInstance: s.workspace.fbSelectedInstance,
-      fbDebugInstances: s.workspace.fbDebugInstances,
     })),
   )
 
@@ -159,86 +156,30 @@ const WorkspaceScreen = () => {
   // F7 force / Ctrl+F7 write / Alt+F7 unforce while logged in (CODESYS keys)
   useForceShortcuts()
 
-  // Build debug variables from POUs with debug=true
-  const allDebugVariables = useMemo(
+  // THE WATCH LIST (services/watch-list): the variables typed into the debugger panel, kept per
+  // project. It replaced the Debug flag in the declarations.
+  useEffect(() => setWatchProject(projectPath || ''), [projectPath])
+  const watchList = useWatchList()
+
+  const debugVariables = useMemo(
     () =>
-      pous.flatMap((pou) => {
-        const variables = pou.interface?.variables ?? []
-        return variables
-          .filter((v) => v.debug === true)
-          .map((v) => {
-            let typeValue = ''
-            if (v.type.definition === 'base-type') {
-              typeValue = v.type.value
-            } else if (v.type.definition === 'user-data-type') {
-              typeValue = v.type.value
-            } else if (v.type.definition === 'array') {
-              typeValue = v.type.value
-            } else if (v.type.definition === 'derived') {
-              typeValue = v.type.value
-            }
-
-            // For function block POUs, transform the key to use instance context
-            let compositeKey: string
-            let displayName: string
-            if (pou.pouType === 'function-block') {
-              const fbTypeKey = pou.name.toUpperCase()
-              const selectedKey = fbSelectedInstance.get(fbTypeKey)
-              const instances = fbDebugInstances.get(fbTypeKey) ?? []
-              const selectedInstance = instances.find((inst) => inst.key === selectedKey)
-
-              if (selectedInstance) {
-                compositeKey = `${selectedInstance.programName}:${selectedInstance.fbVariableName}.${v.name}`
-                displayName = `${selectedInstance.programName}.${selectedInstance.fbVariableName}.${v.name}`
-              } else {
-                compositeKey = `${pou.name}:${v.name}`
-                displayName = v.name
-              }
-            } else {
-              compositeKey = `${pou.name}:${v.name}`
-              displayName = v.name
-            }
-
-            const variableValue = debugBoolValues.get(compositeKey) ?? debugNonBoolValues.get(compositeKey)
-            const displayValue = variableValue !== undefined ? variableValue : '-'
-
-            return {
-              pouName: pou.name,
-              name: displayName,
-              type: typeValue,
-              value: displayValue,
-              compositeKey,
-            }
-          })
+      watchList.map((key) => {
+        const node = debugVariableTree.get(key)
+        const value = debugBoolValues.get(key) ?? debugNonBoolValues.get(key)
+        return { name: watchDisplay(key), type: node?.type ?? '', value: value ?? '-', compositeKey: key }
       }),
-    [pous, debugBoolValues, debugNonBoolValues, fbSelectedInstance, fbDebugInstances],
+    [watchList, debugVariableTree, debugBoolValues, debugNonBoolValues],
   )
 
-  // Deduplicate names with POU prefix when conflicts exist
-  const debugVariables = useMemo(() => {
-    const nameOccurrences = new Map<string, number>()
-    allDebugVariables.forEach((v) => {
-      nameOccurrences.set(v.name, (nameOccurrences.get(v.name) || 0) + 1)
-    })
-
-    return allDebugVariables.map((v) => {
-      const hasConflict = nameOccurrences.get(v.name)! > 1
-      return {
-        name: hasConflict ? `[${v.pouName}] ${v.name}` : v.name,
-        type: v.type,
-        value: v.value,
-        compositeKey: v.compositeKey,
-      }
-    })
-  }, [allDebugVariables])
-
-  // Filter debug variable tree to only include watched or forced keys
+  // The panel's tree: the watched entries in the order they were added, then anything forced.
   const filteredDebugVariableTree = useMemo(() => {
-    const watchedCompositeKeys = new Set<string>(allDebugVariables.map((v) => v.compositeKey))
-    const forcedKeys = Array.from(debugForcedVariables.keys())
-    const allKeys = new Set([...watchedCompositeKeys, ...forcedKeys])
-    return new Map(Array.from(debugVariableTree.entries()).filter(([key]) => allKeys.has(key)))
-  }, [allDebugVariables, debugForcedVariables, debugVariableTree])
+    const out = new Map<string, DebugTreeNode>()
+    for (const key of [...watchList, ...Array.from(debugForcedVariables.keys())]) {
+      const node = debugVariableTree.get(key)
+      if (node && !out.has(key)) out.set(key, node)
+    }
+    return out
+  }, [watchList, debugForcedVariables, debugVariableTree])
 
   // The watch list's menu PREPARES (CODESYS): TRUE / FALSE / a release; F7 forces, Ctrl+F7
   // writes. Its value entry opens the shared prepare dialog itself.

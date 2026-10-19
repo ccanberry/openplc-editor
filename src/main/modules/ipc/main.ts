@@ -282,6 +282,19 @@ class MainProcessBridge implements MainIpcModule {
     }
   }
 
+  /**
+   * Log in with THE SUITE'S ACCOUNT: the OpenPLC Suite launcher hands the appliance login it
+   * set up (ensure_login.py) to the editor in OPENPLC_APPLIANCE_USER / _PASSWORD, so a connect
+   * asks only for the board password -- the runtime here is the Suite's own, not something the
+   * user administers. It stays in this process; the page is told only whether it worked.
+   */
+  handleRuntimeLoginSuite = async (event: IpcMainInvokeEvent, ipAddress: string) => {
+    const username = process.env.OPENPLC_APPLIANCE_USER || ''
+    const password = process.env.OPENPLC_APPLIANCE_PASSWORD || ''
+    if (!username || !password) return { success: false, error: 'not started by the OpenPLC Suite' }
+    return this.handleRuntimeLogin(event, ipAddress, username, password)
+  }
+
   handleRuntimeLogin = async (_event: IpcMainInvokeEvent, ipAddress: string, username: string, password: string) => {
     const result = await this.performAuthentication(ipAddress, username, password)
     if (result.success && result.accessToken) {
@@ -999,6 +1012,7 @@ class MainProcessBridge implements MainIpcModule {
     this.registerHandle('runtime:get-users-info', this.handleRuntimeGetUsersInfo)
     this.registerHandle('runtime:create-user', this.handleRuntimeCreateUser)
     this.registerHandle('runtime:login', this.handleRuntimeLogin)
+    this.registerHandle('runtime:login-suite', this.handleRuntimeLoginSuite)
     this.registerHandle('runtime:get-status', this.handleRuntimeGetStatus)
     this.registerHandle('runtime:start-plc', this.handleRuntimeStartPlc)
     this.registerHandle('runtime:stop-plc', this.handleRuntimeStopPlc)

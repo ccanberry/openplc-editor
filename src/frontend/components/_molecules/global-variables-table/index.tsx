@@ -14,7 +14,7 @@ import {
   EditableLocationCell,
   EditableNameCell,
 } from './editable-cell'
-import { SelectableDebugCell, SelectablePublishCell, SelectableRetainCell, SelectableTypeCell } from './selectable-cell'
+import { SelectablePublishCell, SelectableRetainCell, SelectableTypeCell } from './selectable-cell'
 
 const columnHelper = createColumnHelper<PLCGlobalVariable>()
 
@@ -83,7 +83,6 @@ const columns = [
     maxSize: 468,
     cell: EditableDocumentationCell,
   }),
-  columnHelper.accessor('debug', { header: 'Debug', size: 64, minSize: 64, maxSize: 64, cell: SelectableDebugCell }),
   columnHelper.accessor('publish', {
     header: 'Publish',
     size: 64,

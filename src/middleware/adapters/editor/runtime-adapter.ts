@@ -59,6 +59,18 @@ export function createEditorRuntimeAdapter(getIpAddress: () => string): RuntimeP
       }
     },
 
+    async loginWithSuiteAccount(): Promise<LoginResult> {
+      try {
+        const result = await window.bridge.runtimeLoginSuite(requireIp())
+        if (result.success && result.accessToken) {
+          loggedIn = true
+        }
+        return result
+      } catch (err) {
+        return { success: false, error: getErrorMessage(err) }
+      }
+    },
+
     async createUser(params) {
       try {
         const ip = requireIp()

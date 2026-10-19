@@ -397,8 +397,16 @@ const Board = memo(function () {
       const versionValidation = validateRuntimeVersion(deviceBoard, result.runtimeVersion)
 
       // Helper to proceed with connection after validation
-      const proceedWithConnection = () => {
+      const proceedWithConnection = async () => {
         if (result.hasUsers) {
+          // THE SUITE'S RUNTIME: the launcher handed its own login to the editor, so only the
+          // board password is asked. The dialog stays for a runtime that is not the Suite's.
+          const suite = runtime.loginWithSuiteAccount ? await runtime.loginWithSuiteAccount() : null
+          if (suite?.success && suite.accessToken) {
+            setRuntimeJwtToken(suite.accessToken)
+            setRuntimeConnectionStatus('connected')
+            return
+          }
           openModal('runtime-login', null)
         } else {
           openModal('runtime-create-user', null)
@@ -432,7 +440,7 @@ const Board = memo(function () {
           onResponse: (buttonIndex: number) => {
             if (buttonIndex === 0) {
               // User clicked "Continue Anyway" - proceed with connection
-              proceedWithConnection()
+              void proceedWithConnection()
             } else {
               // User clicked "Cancel" or closed the modal - stay disconnected
               setRuntimeConnectionStatus('disconnected')
@@ -443,7 +451,7 @@ const Board = memo(function () {
       }
 
       // Version is OK - proceed normally
-      proceedWithConnection()
+      await proceedWithConnection()
     } catch (_error) {
       setRuntimeConnectionStatus('error')
     }

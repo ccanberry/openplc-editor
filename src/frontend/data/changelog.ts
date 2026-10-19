@@ -12,6 +12,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.4',
+    date: '2026-10-19',
+    changes: [
+      'A watch list, as in CODESYS: type a variable into the Watch box of the debugger panel (POU.name, a global, a member or an array element, with suggestions) and press Enter; it shows its live value, expands, and is removed with x. The list is kept per project on this PC. The Debug column of the variable tables is gone: variables are no longer marked to be watched.',
+      'Live values is a switch in the strip over the code (on by default), with the period of the reads, 0.1 to 1.0 s (0.2 s as before). Off, the code shows no values and they are not read; hover, the watch list and forcing work as before.',
+      'Live values in programs that declare only VAR_EXTERNALs (MESSAGES, MIXING_HEAD) -- hovering showed them, the code did not.',
+      'Hovering an indexed array shows the element the index selects now, also when the index is itself an element or a member (AX[P_VAL[1700]]); hovering the name shows that element (or FB instance), not the whole array.',
+      'Connecting to a board asks only for the board password: the editor logs in to the Suite\'s own runtime by itself. The login dialog remains for a runtime that is not the Suite\'s.',
+    ],
+  },
+  {
     version: '1.10.3',
     date: '2026-10-19',
     changes: [

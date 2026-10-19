@@ -65,12 +65,18 @@ export type VisibleVarsCache = {
  * @param allLeaves    - Full index→{compositeKey,type}[] map (all debug tree
  *                       leaves; one index maps to many leaves for shared globals)
  * @param cachedResult - Previous diagram/source scan cache (or null)
+ * @param includeVisible - the variables the open code shows (5 & 6); false when live values are
+ *                       switched off -- hover, watch, forced and graphed variables are still read
+ * @param watchKeys    - the watch list (composite keys typed into the debugger panel); given, it
+ *                       REPLACES the declarations' Debug flags as step 1
  * @returns activeIndexes (sorted) and updated cache
  */
 export function buildActiveIndexSet(
   state: DebugPollingState,
   allLeaves: Map<number, { compositeKey: string; type: string }[]>,
   cachedResult: VisibleVarsCache,
+  includeVisible = true,
+  watchKeys?: string[],
 ): { activeIndexes: number[]; cacheResult: VisibleVarsCache } {
   const activeKeys = new Set<string>()
 
@@ -86,9 +92,10 @@ export function buildActiveIndexSet(
   const { editor } = state
 
   // -----------------------------------------------------------------------
-  // 1. Watched variables (debug === true)
+  // 1. Watched variables: the watch list, or (without one) debug === true
   // -----------------------------------------------------------------------
-  for (const pou of pous) {
+  if (watchKeys) for (const k of watchKeys) activeKeys.add(k)
+  else for (const pou of pous) {
     const variables = pou.interface?.variables ?? []
     const watched = variables.filter((v) => v.debug === true)
     if (watched.length === 0) continue
@@ -149,7 +156,7 @@ export function buildActiveIndexSet(
   // -----------------------------------------------------------------------
   const editorName = editor.meta.name
   const editorLanguage = 'language' in editor.meta ? (editor.meta.language as string) : ''
-  const currentPou = pous.find((p) => p.name === editorName)
+  const currentPou = includeVisible ? pous.find((p) => p.name === editorName) : undefined
 
   if (currentPou) {
     const fbCtxKey =

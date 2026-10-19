@@ -15,6 +15,8 @@ type TreeNodeProps = ComponentPropsWithoutRef<'div'> & {
   getForcedValue?: (compositeKey: string) => boolean | undefined
   canForce?: (node: DebugTreeNode) => boolean
   onRowClick?: (node: DebugTreeNode, position: { x: number; y: number }) => void
+  /** Root rows of the watch list: removes the entry. */
+  onRemove?: (compositeKey: string) => void
   level?: number
 }
 
@@ -28,6 +30,7 @@ const TreeNode = ({
   getForcedValue,
   canForce,
   onRowClick,
+  onRemove,
   level = 0,
   ...rest
 }: TreeNodeProps) => {
@@ -136,6 +139,20 @@ const TreeNode = ({
                   : '-'}
           </p>
         </div>
+        {onRemove && isRoot && (
+          <button
+            type='button'
+            title='Remove from the watch list'
+            aria-label='Remove from the watch list'
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemove(node.compositeKey)
+            }}
+            className='flex h-4 w-4 flex-shrink-0 items-center justify-center rounded text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-850 dark:hover:text-neutral-200'
+          >
+            ×
+          </button>
+        )}
       </div>
 
       {node.isComplex && node.isExpanded && node.children && (

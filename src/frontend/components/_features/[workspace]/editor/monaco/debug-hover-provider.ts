@@ -112,12 +112,20 @@ export function ensureDebugHoverProvider(monaco: typeof monacoT): void {
         }
 
         const { workspace } = openPLCStoreBase.getState()
-        const resolved = resolveHoverKeys(expression, prefix, workspace.debugVariableIndexes.keys(), readValue)
+        const allKeys = Array.from(workspace.debugVariableIndexes.keys())
+        let resolved = resolveHoverKeys(expression, prefix, allKeys, readValue)
         if (!resolved) return null
+        // An index read from a variable nobody polls yet (`AX[P_VAL[1700]]`): poll it, wait for
+        // its value, and resolve again -- the hover then shows the element it selects.
+        if (resolved.indexKeys.some((k) => readValue(k) === undefined)) {
+          if (watch(resolved.indexKeys)) await new Promise((resolve) => setTimeout(resolve, 250))
+          await waitForValues(resolved.indexKeys)
+          resolved = resolveHoverKeys(expression, prefix, allKeys, readValue) ?? resolved
+        }
 
         // Newly asked-for keys may hold a value from an earlier hover: let one poll (200 ms)
-        // refresh them first.
-        const isNew = watch(resolved.keys)
+        // refresh them first. The index variables stay polled with them.
+        const isNew = watch([...resolved.keys, ...resolved.indexKeys])
         if (isNew) await new Promise((resolve) => setTimeout(resolve, 250))
         await waitForValues(resolved.keys)
 

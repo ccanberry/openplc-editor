@@ -186,7 +186,12 @@ export function buildDebugVariableTreeMap(
   pous.forEach((pou) => {
     if (pou.pouType !== 'program') return
 
-    const instanceName = resolveProgramInstanceName(pou.name, instanceMappings, mappedPaths)
+    const instanceName = resolveProgramInstanceName(
+      pou.name,
+      instanceMappings,
+      mappedPaths,
+      pou.interface?.variables,
+    )
     if (!instanceName) {
       warnings.push(`No instance found for program '${pou.name}', skipping debug variable parsing.`)
       return
@@ -259,7 +264,12 @@ export function buildFbInstanceMap(
   pous.forEach((pou) => {
     if (pou.pouType !== 'program') return
 
-    const instanceName = resolveProgramInstanceName(pou.name, instanceMappings, mappedPaths)
+    const instanceName = resolveProgramInstanceName(
+      pou.name,
+      instanceMappings,
+      mappedPaths,
+      pou.interface?.variables,
+    )
     if (!instanceName) return
 
     const variables = pou.interface?.variables ?? []

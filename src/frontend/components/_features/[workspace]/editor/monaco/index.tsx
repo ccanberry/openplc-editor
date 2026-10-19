@@ -10,6 +10,7 @@ import { useAI, useCapabilities, useProject } from '../../../../../../middleware
 import { useDebugBoolValuesMap, useDebugNonBoolValuesMap } from '../../../../../hooks/use-debug-value'
 import { isFollowBreakpointOn } from '../../../../../services/follow-breakpoint'
 import { clickToPrepare } from '../../../../../services/forcing'
+import { useLiveValuesOn } from '../../../../../services/live-values'
 import { executeSaveActiveFile, executeSaveProject } from '../../../../../services/save-actions'
 import { pouUri } from '../../../../../services/st-lsp'
 import { openPLCStoreBase, useOpenPLCStore } from '../../../../../store'
@@ -543,7 +544,11 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     return keys.sort().join('\0')
   }, [debugBoolValues, debugNonBoolValues])
 
+  // Live values switched off in the run-control strip: no inline values (and none are read).
+  const liveValuesOn = useLiveValuesOn()
+
   const debugVarPositions = useMemo(() => {
+    if (!liveValuesOn) return null
     // Inline debug badges are an active-tab-only affordance.  Without
     // this guard, every multi-mounted MonacoEditor would re-scan its
     // model for debug-variable occurrences on every poll cycle, then
@@ -606,7 +611,17 @@ const MonacoEditor = (props: monacoEditorProps): ReturnType<typeof PrimitiveEdit
     }
 
     return { prefix, positions }
-  }, [isActive, isDebuggerVisible, debugVarKeySet, language, name, fbInstanceContext, editorMounted, modelVersion])
+  }, [
+    liveValuesOn,
+    isActive,
+    isDebuggerVisible,
+    debugVarKeySet,
+    language,
+    name,
+    fbInstanceContext,
+    editorMounted,
+    modelVersion,
+  ])
 
   useEffect(() => {
     if (!debugVarPositions || !editorRef.current) return

@@ -127,6 +127,9 @@ export interface RuntimePort {
   /** Authenticate with the runtime. Returns JWT on success. */
   login(params: LoginParams): Promise<LoginResult>
 
+  /** Log in with the OpenPLC Suite's own appliance account, when the Suite started the editor. */
+  loginWithSuiteAccount?(): Promise<LoginResult>
+
   /** Create a new user on the runtime (first-time setup). */
   createUser(params: CreateUserParams): Promise<{ success: boolean; error?: string }>
 
