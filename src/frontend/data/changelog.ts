@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.10.5',
+    date: '2026-10-20',
+    changes: [
+      "The Suite's runtime is brought to core 2.1.0's (openplc-runtime 18ef20b) when the Suite starts. On the board, core 2.1.0 exchanges the RoboCard cards on every PLC scan even when a card misses a reply, and reports a failed card to the program by its address: %IW198 bit a is the card at address a (CardFailed AT %IW198 : WORD). Programs need no change and no new upload.",
+    ],
+  },
+  {
     version: '1.10.4',
     date: '2026-10-19',
     changes: [
