@@ -1,6 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { useNavigateToCompileError } from '../../../hooks/use-navigate-to-compile-error'
+import { useVerbose } from '../../../services/editor-settings'
 import { useOpenPLCStore } from '../../../store'
 import formatTimestamp from '../../../utils/format-timestamp'
 import { LogComponent } from './log'
@@ -19,6 +20,8 @@ const Console = memo(() => {
   const logs = useOpenPLCStore((state) => state.logs)
   const filters = useOpenPLCStore((state) => state.filters)
   const followRequestId = useOpenPLCStore((state) => state.followRequestId)
+  // Debug lines (the build's detail) show only with File > Settings > Verbose.
+  const verbose = useVerbose()
   const navigateToCompileError = useNavigateToCompileError()
   const containerRef = useRef<HTMLDivElement | null>(null)
 
@@ -44,6 +47,7 @@ const Console = memo(() => {
       // Filter by level
       const level = log.level || 'info'
       if (!filters.levels[level]) return false
+      if (level === 'debug' && !verbose) return false
 
       // Filter by search term
       if (filters.searchTerm) {
@@ -55,7 +59,7 @@ const Console = memo(() => {
 
       return true
     })
-  }, [logs, filters])
+  }, [logs, filters, verbose])
 
   /**
    * Scroll listener — updates the stick flag whenever the user (or

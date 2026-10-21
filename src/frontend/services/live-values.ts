@@ -1,11 +1,11 @@
 /**
  * Live values: the `= value` shown after each variable in the code while logged in, and how often
- * the PLC is asked for them. Switched and set in the run-control strip; kept per user, like Follow.
+ * the PLC is asked for them. Switched in the run-control strip, the period set in File > Settings;
+ * kept per user, like Follow.
  *
  *   on      default true. Off, the code shows no values and they are not read; hover, the watch
  *           list, forced and graphed variables are read as before.
- *   period  seconds between reads over TCP, 0.1 to 1.0 in steps of 0.1; default 0.2 (the rate
- *           the editor always used).
+ *   period  seconds between reads over TCP, 0.1 to 1.0 in steps of 0.1; default 1.0.
  */
 import { useSyncExternalStore } from 'react'
 
@@ -14,7 +14,7 @@ const KEY_PERIOD = 'oplc.debug.live-period'
 
 export const LIVE_PERIOD_MIN = 0.1
 export const LIVE_PERIOD_MAX = 1.0
-export const LIVE_PERIOD_DEFAULT = 0.2
+export const LIVE_PERIOD_DEFAULT = 1.0
 
 /** Clamp to 0.1..1.0 and one decimal; anything unreadable is the default. */
 export function normalizeLivePeriod(v: unknown): number {

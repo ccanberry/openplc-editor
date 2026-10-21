@@ -3,7 +3,7 @@
  * strip that floats over the ST/IL editor during a debug session.
  *
  * Renders while logged in. The run-control buttons need a debug build (checkpoint map present);
- * the Live values switch and its period are there for every session.
+ * the Live values switch is there for every session (its period: File > Settings).
  * State is read from the workspace store; the button handlers come from
  * `useRunControlActions`, which route through `DebuggerPort` to the runtime's
  * run-control PDUs (FC 0x47-0x4A).  The current-line highlight itself lives in
@@ -18,14 +18,7 @@ import { StickArrowIcon } from '../../../assets/icons/interface/StickArrow'
 import { TrashCanIcon } from '../../../assets/icons/interface/TrashCan'
 import { useRunControlActions } from '../../../hooks/useRunControl'
 import { isFollowBreakpointOn, setFollowBreakpoint } from '../../../services/follow-breakpoint'
-import {
-  LIVE_PERIOD_MAX,
-  LIVE_PERIOD_MIN,
-  setLivePeriod,
-  setLiveValuesOn,
-  useLivePeriod,
-  useLiveValuesOn,
-} from '../../../services/live-values'
+import { setLiveValuesOn, useLiveValuesOn } from '../../../services/live-values'
 import { useOpenPLCStore } from '../../../store'
 import { checkpointLocation } from '../../../utils/debug-breakpoints'
 
@@ -75,14 +68,8 @@ export function RunControlToolbar() {
   const onPause = useCallback(() => void pause(), [pause])
   const onStep = useCallback(() => void step(), [step])
 
-  // Live values: on/off and the read period (0.1-1.0 s), kept per user.
+  // Live values on/off, kept per user; their read period is in File > Settings.
   const liveOn = useLiveValuesOn()
-  const livePeriod = useLivePeriod()
-  const [periodText, setPeriodText] = useState<string | null>(null)
-  const commitPeriod = useCallback((text: string) => {
-    setLivePeriod(text)
-    setPeriodText(null)
-  }, [])
 
   if (!isDebuggerVisible) return null
   // Only a debug build (checkpoint map loaded) exposes run control.
@@ -97,23 +84,6 @@ export function RunControlToolbar() {
         <input type='checkbox' checked={liveOn} onChange={() => setLiveValuesOn(!liveOn)} />
         Live values
       </label>
-      <input
-        type='number'
-        aria-label='Live values period in seconds'
-        title={`How often the values are read, ${LIVE_PERIOD_MIN} to ${LIVE_PERIOD_MAX} s`}
-        min={LIVE_PERIOD_MIN}
-        max={LIVE_PERIOD_MAX}
-        step={0.1}
-        disabled={!liveOn}
-        value={periodText ?? livePeriod.toFixed(1)}
-        onChange={(e) => setPeriodText(e.target.value)}
-        onBlur={(e) => commitPeriod(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commitPeriod((e.target as HTMLInputElement).value)
-        }}
-        className='h-5 w-12 rounded border border-neutral-300 bg-transparent px-1 text-cp-sm text-neutral-700 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-300'
-      />
-      <span className='text-cp-sm text-neutral-500'>s</span>
     </>
   )
 

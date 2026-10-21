@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useCapabilities, useProject } from '../../../../../middleware/shared/providers'
 import { useHandleRemoveTab } from '../../../../hooks/use-remove-tab'
 import { i18n } from '../../../../locales/i18n'
+import { requestOpenSettings } from '../../../../services/editor-settings'
 import { executeSaveActiveFile, executeSaveProject } from '../../../../services/save-actions'
 import { useOpenPLCStore } from '../../../../store'
 import { MenuClasses } from '../constants'
@@ -108,6 +109,11 @@ export const FileMenu = () => {
           <MenuPrimitive.Item className={ITEM} disabled>
             <span>{i18n.t('menu:file.submenu.updates')}</span>
             <span className={ACCELERATOR}>{'Ctrl + U'}</span>
+          </MenuPrimitive.Item>
+          <MenuPrimitive.Separator className={SEPARATOR} />
+          <MenuPrimitive.Item className={ITEM} onClick={requestOpenSettings}>
+            <span>Settings...</span>
+            <span className={ACCELERATOR}>{'Ctrl + ,'}</span>
           </MenuPrimitive.Item>
         </MenuPrimitive.Content>
       </MenuPrimitive.Portal>

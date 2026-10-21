@@ -20,13 +20,14 @@ import { StopIcon } from '../../../assets/icons/interface/Stop'
 import { useDebugPolling } from '../../../hooks/useDebugPolling'
 import { useDebugSession } from '../../../hooks/useDebugSession'
 import { useRunControlSync } from '../../../hooks/useRunControl'
-import { isDevMode } from '../../../services/editor-settings'
+import { isClearConsoleOnBuild, isConfirmOnlineChange, isDevMode } from '../../../services/editor-settings'
 import { releaseForces } from '../../../services/forcing'
 import { connectToRuntime, needsBoardPassword } from '../../../services/runtime-connect'
 import { executeSaveProject } from '../../../services/save-actions'
 import { useOpenPLCStore } from '../../../store'
 import type { RuntimeConnection } from '../../../store/slices/device/types'
 import { cn } from '../../../utils/cn'
+import { withDetailLevel } from '../../../utils/console-detail'
 import { decideAttach, parseCheckpointFingerprint, resolveDebugBuild } from '../../../utils/debug-attach'
 import { logCompilerEvent } from '../../../utils/debugger-session'
 import { isOpenPLCRuntimeTarget } from '../../../utils/device'
@@ -109,7 +110,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     project: { data: projectData, meta: projectMeta },
     deviceDefinitions,
     deviceAvailableOptions: { availableBoards },
-    consoleActions: { addLog, addLogs, requestConsoleFollow },
+    consoleActions: { addLog, addLogs, clearLogs, requestConsoleFollow },
   } = useOpenPLCStore()
 
   // Project-type capability matrix.  Drives which set of action
@@ -142,6 +143,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const loginDataRef = useRef<unknown>(null)
   // The Login handler, for the re-login after an online change (defined further down).
   const reloginRef = useRef<(() => Promise<void>) | null>(null)
+  // Log out, asking first when variables are forced; false = the operator cancelled.
+  const goOfflineRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true))
   const [simulatorRunning, setSimulatorRunning] = useState(false)
   const pendingSimulatorDebugRef = useRef(false)
   // True while an upload runs: its own stop of the PLC is not a reason to log out.
@@ -246,27 +249,42 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       autoOnline?: boolean
       /** Never turn this upload into an online change (the fallback download itself). */
       noAutoOnline?: boolean
+      /** The online change was already confirmed (or chosen at login): do not ask again. */
+      onlineConfirmed?: boolean
     }): Promise<boolean> => {
       if (isCompiling) return false
 
-      // LOGGED IN AND THE PLC RUNS: the upload is an ONLINE CHANGE (CODESYS "Login with online
-      // change", TIA "download in RUN") -- the board swaps its program at a scan boundary and
-      // keeps every value, nothing stops. Refused (another task layout, a halted breakpoint, an
-      // old core), it asks before a download that stops the PLC.
-      {
-        const st = useOpenPLCStore.getState()
-        if (
-          !overrides?.compileOnly &&
-          !overrides?.cleanBuild &&
-          !overrides?.onlineChange &&
-          !overrides?.noAutoOnline &&
-          st.workspace.isDebuggerVisible &&
-          st.runtimeConnection.connectionStatus === 'connected' &&
-          st.runtimeConnection.plcStatus === 'RUNNING' &&
-          (st.deviceDefinitions.configuration.deviceBoard || '').startsWith('MCM20.1')
-        ) {
-          return handleBuildRef.current({ ...overrides, onlineChange: true, autoOnline: true })
+      // LOGGED IN, A BUILD HAS ONE PURPOSE: THE ONLINE CHANGE (CODESYS "Login with online change",
+      // TIA "download in RUN") -- the board swaps its program at a scan boundary and keeps every
+      // value, nothing stops. Build only / download / clean download need a logout first. Asked
+      // first (File > Settings: Ask before an online change): OK, Cancel, or Go offline.
+      if (
+        !overrides?.onlineConfirmed &&
+        !overrides?.noAutoOnline &&
+        !overrides?.keepPlcRunning &&
+        useOpenPLCStore.getState().workspace.isDebuggerVisible
+      ) {
+        if (isConfirmOnlineChange()) {
+          const choice = await showDebuggerMessage(
+            'question',
+            'Online change',
+            'The program on the PLC is changed online: the PLC keeps running, every variable keeps its ' +
+              'value and the new code takes over at the end of a scan.\n\nGo offline logs out; Build, ' +
+              'Build and upload and Clean build and upload are then in the build menu.',
+            ['OK', 'Cancel', 'Go offline'],
+            { primaryButtonIndex: 0, dismissButtonIndex: 1 },
+          )
+          if (choice === 2) await goOfflineRef.current()
+          if (choice !== 0) return false
         }
+        return handleBuildRef.current({
+          ...overrides,
+          compileOnly: false,
+          cleanBuild: false,
+          onlineChange: true,
+          autoOnline: true,
+          onlineConfirmed: true,
+        })
       }
       const wasLoggedIn = useOpenPLCStore.getState().workspace.isDebuggerVisible
       // Every build line carries the time since the build started, so a slow step shows itself.
@@ -279,6 +297,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       // Reveal the console and re-attach it to the tail so build output is
       // visible from the first line, even if the console was collapsed or the
       // user had scrolled up. One-shot — it won't fight a later manual scroll.
+      if (isClearConsoleOnBuild()) clearLogs()
       requestConsoleFollow()
 
       // Always save the full project before building. The compile
@@ -443,9 +462,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               streamedError = true
             }
             if (event.message && /online change refused/i.test(event.message)) onlineRefusal = event.message
-            logCompilerEvent(
-              event.message ? { ...event, message: `${elapsed()} ${event.message}` } : event,
-              buildLog.add,
+            logCompilerEvent(event.message ? { ...event, message: `${elapsed()} ${event.message}` } : event, (entry) =>
+              buildLog.add(withDetailLevel(entry)),
             )
             if (event.firmwarePath && isSimulatorBoard) {
               void simulator.loadFirmware(event.firmwarePath).then((loadResult) => {
@@ -500,14 +518,22 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           ? String(onlineRefusal).replace(/^.*online change refused:\s*/i, '')
           : 'the online change did not complete'
         const choice = await showDebuggerMessage(
-          'question',
+          'warning',
           'Online change not possible',
-          `${reason}\n\nDownload instead? The PLC stops, takes the new program and starts again.`,
-          ['Download', 'Cancel'],
+          `The program on the PLC was not changed: ${reason}.\n\nGo offline and download: you are logged ` +
+            'out, the PLC stops, takes the new program and starts again.',
+          ['Go offline and download', 'Cancel'],
           { primaryButtonIndex: 0, dismissButtonIndex: 1 },
         )
         if (choice !== 0) return false
-        return handleBuildRef.current({ ...overrides, onlineChange: false, autoOnline: false, noAutoOnline: true })
+        if (useOpenPLCStore.getState().workspace.isDebuggerVisible && !(await goOfflineRef.current())) return false
+        return handleBuildRef.current({
+          ...overrides,
+          onlineChange: false,
+          autoOnline: false,
+          noAutoOnline: true,
+          onlineConfirmed: true,
+        })
       }
       // A DOWNLOAD WHILE LOGGED IN restarted the program: the session belongs to the old one. Log
       // in again to the new one when it runs; logged out when the PLC stays stopped.
@@ -549,6 +575,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       simulator,
       debugSession,
       addLog,
+      addLogs,
+      clearLogs,
       isCompiling,
       executeSave,
       canEdit,
@@ -636,7 +664,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         setIsCompiling(false)
       }
     },
-    [compiler, projectData, projectMeta, addLog, addLogs, isCompiling, executeSave, requestConsoleFollow],
+    [compiler, projectData, projectMeta, addLog, addLogs, clearLogs, isCompiling, executeSave, requestConsoleFollow],
   )
 
   // ---------------------------------------------------------------------------
@@ -870,7 +898,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               runtimeIpAddress,
               runtimeJwtToken,
             },
-            (event) => logCompilerEvent(event, uploadLog.add),
+            (event) => logCompilerEvent(event, (entry) => uploadLog.add(withDetailLevel(entry))),
           )
           uploadLog.flush()
           if (compileResult.success) {
@@ -1130,28 +1158,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
     // Toggle off
     if (workspace.isDebuggerVisible) {
-      // FORCES OUTLIVE THE LOGIN: they stay on the PLC until released. Say so, and let the
-      // operator choose, before the session that shows them goes.
-      const forced = workspace.debugPlcForces ? workspace.debugPlcForces.size : workspace.debugForcedVariables.size
-      if (forced > 0) {
-        useOpenPLCStore.getState().modalActions.openModal('debugger-message', {
-          type: 'warning',
-          title: 'Variables are forced',
-          message:
-            `${forced} variable(s) are forced on the PLC. A force stays on the PLC after logout, until it is ` +
-            'released, the PLC program is downloaded again or the PLC restarts.',
-          buttons: ['Release and log out', 'Keep forced and log out', 'Cancel'],
-          onResponse: (i: number) => {
-            if (i === 2) return
-            void (async () => {
-              if (i === 0) await releaseForces(debuggerPort)
-              await debugSession.stopSession()
-            })()
-          },
-        })
-        return
-      }
-      await debugSession.stopSession()
+      await goOfflineRef.current()
       return
     }
 
@@ -1219,6 +1226,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             debugCheckpoints: true,
             onlineChange: true,
             autoOnline: true,
+            onlineConfirmed: true,
           })
           if (!changed) {
             consoleActions.addLog({
@@ -1257,7 +1265,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         const debugLog = createLogBatcher(consoleActions.addLogs)
         const debugCompileResult = await compiler.compileForDebug(
           { projectData: freshProjectData, boardTarget, projectPath },
-          (event) => logCompilerEvent(event, debugLog.add),
+          (event) => logCompilerEvent(event, (entry) => debugLog.add(withDetailLevel(entry))),
         )
         debugLog.flush()
         if (!debugCompileResult.success) {
@@ -1299,6 +1307,27 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     ensureRuntimeConnection,
   ])
   reloginRef.current = handleDebuggerClick
+  goOfflineRef.current = async () => {
+    const { workspace } = useOpenPLCStore.getState()
+    if (!workspace.isDebuggerVisible) return true
+    // FORCES OUTLIVE THE LOGIN: they stay on the PLC until released. Say so, and let the
+    // operator choose, before the session that shows them goes.
+    const forced = workspace.debugPlcForces ? workspace.debugPlcForces.size : workspace.debugForcedVariables.size
+    if (forced > 0) {
+      const i = await showDebuggerMessage(
+        'warning',
+        'Variables are forced',
+        `${forced} variable(s) are forced on the PLC. A force stays on the PLC after logout, until it is ` +
+          'released, the PLC program is downloaded again or the PLC restarts.',
+        ['Release and log out', 'Keep forced and log out', 'Cancel'],
+        { dismissButtonIndex: 2 },
+      )
+      if (i === 2) return false
+      if (i === 0) await releaseForces(debuggerPort)
+    }
+    await debugSession.stopSession()
+    return true
+  }
 
   // ---------------------------------------------------------------------------
   // JSX
@@ -1321,14 +1350,16 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           <BuildOptionsPopover
             disabled={isCompiling || isSimulatorBoard}
             attention={changedSinceLogin}
-            onlineChangeAvailable={isDebuggerVisible && !isSimulatorBoard}
+            loggedIn={isDebuggerVisible && !isSimulatorBoard}
             triggerTooltip={
               isSimulatorBoard
                 ? 'Use Start to build and run'
                 : isCompiling
                   ? 'Compiling…'
-                  : changedSinceLogin
-                    ? 'Changed since login: build and upload to put it on the PLC'
+                  : isDebuggerVisible
+                    ? changedSinceLogin
+                      ? 'Changed since login: online change to put it on the PLC'
+                      : 'Online change'
                     : 'Build options'
             }
             // Direct-USB targets (every arduino-cli board, simulator)
@@ -1361,7 +1392,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
                   void handleBuild({ compileOnly: false, cleanBuild: true })
                   break
                 case 'online-change':
-                  void handleBuild({ compileOnly: false, onlineChange: true })
+                  // Logged in: handleBuild asks OK / Cancel / Go offline, then changes online.
+                  void handleBuild({ compileOnly: false })
                   break
               }
             }}

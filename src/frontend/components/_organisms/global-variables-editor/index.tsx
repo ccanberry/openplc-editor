@@ -319,7 +319,11 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
   }, [commitCode])
 
   return (
-    <div ref={containerRef} aria-label='Variables editor container' className='flex  w-full flex-col gap-4'>
+    <div
+      ref={containerRef}
+      aria-label='Variables editor container'
+      className={cn('flex w-full flex-col gap-4', editorVariables.display === 'code' && 'h-full')}
+    >
       <div aria-label='Variables editor actions' className='relative flex h-8 w-full min-w-[1035px]'>
         <div aria-label='Variables editor table actions container' className='flex h-full w-full justify-between'>
           <span className='select-none'>{gvl}</span>
@@ -409,15 +413,13 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
       )}
 
       {editorVariables.display === 'code' && (
-        <div
-          aria-label='Variables editor code container'
-          className='h-full max-h-80 overflow-y-auto'
-          style={{ scrollbarGutter: 'stable' }}
-        >
-          <VariablesCodeEditor code={editorCode} onCodeChange={setEditorCode} shouldUseDarkMode={shouldUseDarkMode} />
-
-          {parseError && <p className='mt-2 text-xs text-red-500'>Erro: {parseError}</p>}
-        </div>
+        // The code fills the tab (Monaco scrolls itself); the parse error goes under it.
+        <>
+          <div aria-label='Variables editor code container' className='min-h-0 flex-1'>
+            <VariablesCodeEditor code={editorCode} onCodeChange={setEditorCode} shouldUseDarkMode={shouldUseDarkMode} />
+          </div>
+          {parseError && <p className='text-xs text-red-500'>Error: {parseError}</p>}
+        </>
       )}
     </div>
   )

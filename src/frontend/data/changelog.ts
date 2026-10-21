@@ -12,6 +12,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.2',
+    date: '2026-10-21',
+    changes: [
+      'Logged in, the build menu has one purpose, as in CODESYS: Online change. It asks first: OK changes the program on the PLC without stopping it, Cancel does nothing, Go offline logs out. Build only, Build and upload and Clean build and upload are in the menu again after a logout. The build menu icon is turned 90 degrees while logged in.',
+      'When the change cannot be made online (another task layout, a halted breakpoint, an older core), the editor says why and offers Go offline and download (log out, then a normal download that stops and starts the PLC) or Cancel.',
+      'File > Settings (Ctrl+,), now also in the File menu: the live values update period (1.0 s by default; it left the floating bar), Ask before an online change, Verbose console (off by default: the console shows the build steps, warnings and errors, not every compiler command and plugin state), Clear the console at each build, and Dev mode.',
+      'The code view of a GVL fills its tab.',
+    ],
+  },
+  {
     version: '1.11.1',
     date: '2026-10-21',
     changes: [

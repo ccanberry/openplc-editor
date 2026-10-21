@@ -29,8 +29,9 @@ type BuildOptionsPopoverProps = {
   libraryMode?: boolean
   /** Lit: the project has changed since the login, so the PLC runs an older program. */
   attention?: boolean
-  /** Logged in to the running program: offer the online change (no stop). */
-  onlineChangeAvailable?: boolean
+  /** Logged in (CODESYS online): the menu has one purpose, the online change. Build only,
+   *  download and clean download come back after a logout. The icon turns 90 degrees ccw. */
+  loggedIn?: boolean
   onSelect: (option: BuildOption) => void
 }
 
@@ -91,7 +92,7 @@ export const BuildOptionsPopover = ({
   uploadDisabledReason,
   libraryMode,
   attention,
-  onlineChangeAvailable,
+  loggedIn,
   onSelect,
 }: BuildOptionsPopoverProps): ReactNode => {
   const [open, setOpen] = useState(false)
@@ -119,7 +120,12 @@ export const BuildOptionsPopover = ({
                     attention && !disabled && 'rounded-md bg-amber-400/25 ring-2 ring-amber-400',
                   )}
                 >
-                  {isNineties ? <RetroBuild /> : <DownloadIcon />}
+                  <span
+                    className={cn('flex transition-transform duration-200', loggedIn && '-rotate-90')}
+                    data-logged-in={loggedIn ? 'true' : undefined}
+                  >
+                    {isNineties ? <RetroBuild /> : <DownloadIcon />}
+                  </span>
                 </ActivityBarButton>
               </Popover.Trigger>
             </div>
@@ -154,6 +160,19 @@ export const BuildOptionsPopover = ({
                 onClick={() => choose('clean-upload')}
               />
             </>
+          ) : loggedIn ? (
+            <>
+              <OptionRow
+                label='Online change'
+                description='Replace the running program without stopping it: every variable keeps its value.'
+                disabled={!uploadAvailable}
+                disabledReason={uploadDisabledReason}
+                onClick={() => choose('online-change')}
+              />
+              <span className='px-2 pb-1 font-caption text-cp-xs text-neutral-500 dark:text-neutral-400'>
+                Log out for Build only, Build and upload and Clean build and upload.
+              </span>
+            </>
           ) : (
             <>
               <OptionRow
@@ -176,13 +195,6 @@ export const BuildOptionsPopover = ({
                 disabled={!uploadAvailable}
                 disabledReason={uploadDisabledReason}
                 onClick={() => choose('clean-upload')}
-              />
-              <OptionRow
-                label='Online change'
-                description='Replace the running program without stopping it: every variable keeps its value.'
-                disabled={!uploadAvailable || !onlineChangeAvailable}
-                disabledReason={!uploadAvailable ? uploadDisabledReason : 'log in to the running program first'}
-                onClick={() => choose('online-change')}
               />
             </>
           )}
