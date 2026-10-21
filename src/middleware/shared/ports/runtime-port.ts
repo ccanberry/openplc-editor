@@ -169,6 +169,16 @@ export interface RuntimePort {
   /** Whether a board password is set for this connection. */
   hasBoardPassword(): Promise<boolean>
 
+  /** DEV MODE (File > Settings): keep this connection's board password, encrypted for the OS
+   *  user, for the board at `ip`. Never readable by the renderer. */
+  rememberBoardPassword?(ip: string): Promise<{ success: boolean; error?: string }>
+
+  /** DEV MODE: load the remembered password for `ip` into this connection. False: none kept. */
+  useRememberedBoardPassword?(ip: string): Promise<boolean>
+
+  /** Delete every remembered board password (dev mode switched off). */
+  forgetBoardPasswords?(): Promise<{ success: boolean; error?: string }>
+
   /**
    * Check if the runtime connection is ready for debug operations.
    * Each adapter implements its own readiness criteria:

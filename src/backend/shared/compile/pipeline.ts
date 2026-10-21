@@ -622,7 +622,9 @@ async function runCompilePipelineInner(
     if (retained.names.length > 0) {
       emit({
         stage: 'confs',
-        message: `retain: ${retained.names.length} variable leaf/leaves declared retained (retain-names.json)`,
+        message:
+          `retain: ${retained.names.length} variable leaf/leaves declared retained (retain-names.json)` +
+          (retained.persistent.length > 0 ? `, ${retained.persistent.length} of them PERSISTENT` : ''),
         level: 'info',
       })
     }

@@ -720,10 +720,11 @@ const createProjectSlice: StateCreator<ProjectSliceRoot, [], [], ProjectSlice> =
       )
       return ok()
     },
-    setGlobalVariables: ({ variables }) => {
+    setGlobalVariables: ({ variables, lists }) => {
       setState(
         produce((slice: ProjectSlice) => {
           slice.project.data.configurations.resource.globalVariables = variables
+          if (lists) slice.project.data.configurations.resource.globalVariableLists = lists
         }),
       )
       return ok()

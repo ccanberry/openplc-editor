@@ -22,6 +22,9 @@ export type ModalTypes =
   | 'runtime-create-user'
   | 'runtime-discover-devices'
   | 'runtime-login'
+  /** Login while not connected: the board's address and password, then connect and log in.
+   *  Data: `RuntimeQuickConnectData`. */
+  | 'runtime-quick-connect'
   | 'server-ip-mismatch'
   | 'runtime-connection-lost'
   | 'debugger-message'

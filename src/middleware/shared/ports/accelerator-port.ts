@@ -55,6 +55,8 @@ export interface AcceleratorPort {
   // --- View actions ---
   onSwitchPerspective(callback: () => void): Unsubscribe
   onAbout(callback: () => void): Unsubscribe
+  /** File > Settings (editor-only; absent on platforms without a settings window). */
+  onOpenSettings?(callback: () => void): Unsubscribe
 
   // --- App lifecycle ---
   onQuitApp(callback: () => void): Unsubscribe

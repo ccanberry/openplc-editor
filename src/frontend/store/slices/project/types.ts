@@ -117,7 +117,8 @@ export type ProjectActions = {
   // Variables
   createVariable: (dto: Omit<VariableDTO, 'data'> & { data: PLCVariable; rowToInsert?: number }) => ProjectResponse
   setPouVariables: (args: { pouName: string; variables: PLCVariable[] }) => ProjectResponse
-  setGlobalVariables: (args: { variables: PLCVariable[] }) => ProjectResponse
+  /** `lists`: the GVL order (and empty GVLs) too, when the GVLs themselves change. */
+  setGlobalVariables: (args: { variables: PLCVariable[]; lists?: string[] }) => ProjectResponse
   /**
    * Recompute the persisted auto-publish register assignments from the
    * current published globals (shared `hmi-publish` allocator; the

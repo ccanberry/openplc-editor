@@ -157,6 +157,19 @@ export function createEditorRuntimeAdapter(getIpAddress: () => string): RuntimeP
       return !!r?.set
     },
 
+    async rememberBoardPassword(ip: string) {
+      return window.bridge.runtimeRememberBoardPassword(ip)
+    },
+
+    async useRememberedBoardPassword(ip: string) {
+      const r = await window.bridge.runtimeUseRememberedBoardPassword(ip)
+      return !!r?.found
+    },
+
+    async forgetBoardPasswords() {
+      return window.bridge.runtimeForgetBoardPasswords()
+    },
+
     onTokenRefreshed(callback: (newToken: string) => void): Unsubscribe {
       const handler = (_event: unknown, newToken: string) => callback(newToken)
       return window.bridge.onRuntimeTokenRefreshed(handler)

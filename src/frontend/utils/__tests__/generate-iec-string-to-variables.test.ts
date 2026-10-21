@@ -443,4 +443,30 @@ describe('parseIecStringToVariables', () => {
     const result = parseIecStringToVariables('var retain\n  x : INT;\nend_var')
     expect(result[0]).toMatchObject({ name: 'x', class: 'local', retain: true })
   })
+
+  it('flags VAR RETAIN PERSISTENT and VAR PERSISTENT as persistent (and retained), and nothing else', () => {
+    const result = parseIecStringToVariables(
+      'VAR RETAIN PERSISTENT\n  hours : UDINT;\n  arr : ARRAY [1..2] OF INT;\nEND_VAR\n' +
+        'VAR PERSISTENT\n  p : INT;\nEND_VAR\nVAR RETAIN\n  r : INT;\nEND_VAR',
+    )
+    expect(result.map((v) => [v.name, v.retain ?? false, v.persistent ?? false])).toEqual([
+      ['hours', true, true],
+      ['arr', true, true],
+      ['p', true, true],
+      ['r', true, false],
+    ])
+  })
+
+  it("flags a GVL's VAR_GLOBAL RETAIN [PERSISTENT] / PERSISTENT blocks the same way", () => {
+    const result = parseIecStringToVariables(
+      'VAR_GLOBAL\n  g : INT;\nEND_VAR\nVAR_GLOBAL RETAIN\n  r : INT;\nEND_VAR\n' +
+        'VAR_GLOBAL RETAIN PERSISTENT\n  rp : INT;\nEND_VAR\nVAR_GLOBAL PERSISTENT\n  p : INT;\nEND_VAR',
+    )
+    expect(result.map((v) => [v.name, v.class, v.retain ?? false, v.persistent ?? false])).toEqual([
+      ['g', 'global', false, false],
+      ['r', 'global', true, false],
+      ['rp', 'global', true, true],
+      ['p', 'global', true, true],
+    ])
+  })
 })

@@ -1,9 +1,11 @@
 import { CloseIcon } from '../../../../assets/icons/interface/Close'
-import { useOpenPLCStore } from '../../../../store'
+import { openGvl } from '../../../../services/global-variable-lists'
+import { openPLCStoreBase, useOpenPLCStore } from '../../../../store'
 import type { Project } from '../../../../store/slices/search'
 import { extractSearchQuery } from '../../../../store/slices/search/utils'
 import type { TabsProps } from '../../../../store/slices/tabs'
 import { CreateEditorObjectFromTab } from '../../../../store/slices/tabs/utils'
+import { DEFAULT_GVL, gvlOf } from '../../../../utils/global-variable-lists'
 import { Accordion } from '../../../_atoms/accordion'
 import {
   ProjectSearchTreeBranch,
@@ -204,11 +206,13 @@ const Search = ({ items }: SearchProps) => {
                                 label={extractSearchQuery(variable, item.searchQuery)}
                                 hasVariable
                                 onClick={() => {
-                                  handleCreateTab({
-                                    name: 'Resource',
-                                    path: `/data/configuration/resource`,
-                                    elementType: { type: 'resource' },
-                                  })
+                                  // The GVL that declares it.
+                                  const found = openPLCStoreBase
+                                    .getState()
+                                    .project.data.configurations.resource.globalVariables.find(
+                                      (v) => v.name === variable,
+                                    )
+                                  openGvl(found ? gvlOf(found) : DEFAULT_GVL)
                                   setSearchQuery(item.searchQuery)
                                 }}
                               />

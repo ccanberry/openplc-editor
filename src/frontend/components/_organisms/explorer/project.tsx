@@ -8,11 +8,13 @@ import { useOpenPLCStore } from '../../../store'
 import { extractSearchQuery } from '../../../store/slices/search/utils'
 import type { TabsProps } from '../../../store/slices/tabs'
 import { CreateEditorObjectFromTab, LIBRARY_MANIFEST_TAB_NAME } from '../../../store/slices/tabs/utils'
+import { gvlNames } from '../../../utils/global-variable-lists'
 import { useToast } from '../../_features/[app]/toast/use-toast'
 import { CreatePLCElement } from '../../_features/[workspace]/create-element'
 import {
   ProjectTreeBranch,
   ProjectTreeExpandableLeaf,
+  ProjectTreeGvlLeaf,
   ProjectTreeLeaf,
   ProjectTreeRoot,
 } from '../../_molecules/project-tree'
@@ -326,6 +328,19 @@ const Project = () => {
                 />
               ))}
           </ProjectTreeBranch>
+
+          {/* The global variable lists, each in its own tab (CODESYS: GVL objects). */}
+          {projectCaps.hasResource && (
+            <ProjectTreeBranch branchTarget='global-variables'>
+              {gvlNames(configurations.resource).map((gvl) => (
+                <ProjectTreeGvlLeaf
+                  key={gvl}
+                  gvl={gvl}
+                  label={searchQuery ? extractSearchQuery(gvl, searchQuery) : gvl}
+                />
+              ))}
+            </ProjectTreeBranch>
+          )}
 
           {/* Project Resources tree branch — hidden for libraries. */}
           {projectCaps.hasResource && (

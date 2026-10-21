@@ -24,6 +24,7 @@
  *   edit:redo-request
  *   workspace:switch-perspective-accelerator
  *   about:open-accelerator
+ *   settings:open-accelerator
  */
 
 import type { AcceleratorPort } from '../../shared/ports/accelerator-port'
@@ -164,6 +165,16 @@ export function createEditorAcceleratorAdapter(): AcceleratorPort {
     onAbout(callback: () => void): Unsubscribe {
       let active = true
       window.bridge.aboutModalAccelerator(() => {
+        if (active) callback()
+      })
+      return () => {
+        active = false
+      }
+    },
+
+    onOpenSettings(callback: () => void): Unsubscribe {
+      let active = true
+      window.bridge.settingsModalAccelerator(() => {
         if (active) callback()
       })
       return () => {

@@ -152,6 +152,7 @@ export function useDebugSession(): UseDebugSessionReturn {
             entriesForTree,
             project.data,
             useOpenPLCStore.getState().libraries.system,
+            project.data.configurations?.resource?.globalVariables,
           )
           treeMap = treeResult.treeMap
 

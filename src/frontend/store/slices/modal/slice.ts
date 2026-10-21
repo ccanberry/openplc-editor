@@ -19,6 +19,7 @@ const ALL_MODAL_TYPES: ModalTypes[] = [
   'runtime-create-user',
   'runtime-discover-devices',
   'runtime-login',
+  'runtime-quick-connect',
   'server-ip-mismatch',
   'runtime-connection-lost',
   'debugger-message',

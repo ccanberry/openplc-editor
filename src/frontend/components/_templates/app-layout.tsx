@@ -9,7 +9,12 @@ import Toaster from '../_features/[app]/toast/toaster'
 import { ProjectModal } from '../_features/[start]/new-project/project-modal'
 import { AIConsentModal } from '../_features/[workspace]/editor/monaco/ai-consent-modal'
 import AboutModal from '../_organisms/about-modal'
-import { RuntimeCreateUserModal, RuntimeDiscoverDevicesModal, RuntimeLoginModal } from '../_organisms/modals'
+import {
+  RuntimeCreateUserModal,
+  RuntimeDiscoverDevicesModal,
+  RuntimeLoginModal,
+  RuntimeQuickConnectModal,
+} from '../_organisms/modals'
 import { ConfirmDeleteProjectModal } from '../_organisms/modals/confirm-delete-project-modal'
 import { ConfirmInstallLibrariesModal } from '../_organisms/modals/confirm-install-libraries-modal'
 import { DebuggerMessageModal } from '../_organisms/modals/debugger-message-modal'
@@ -25,6 +30,7 @@ import { SaveChangesFileModal } from '../_organisms/modals/save-changes-file-mod
 import type { SaveChangeModalProps } from '../_organisms/modals/save-changes-modal'
 import { SaveChangesModal } from '../_organisms/modals/save-changes-modal'
 import { ServerIpMismatchModal } from '../_organisms/modals/server-ip-mismatch-modal'
+import { SettingsModal } from '../_organisms/settings-modal'
 import { TitleBar } from '../_organisms/title-bar'
 import { AcceleratorHandler } from './accelerator-handler'
 
@@ -141,10 +147,12 @@ const AppLayout = ({ children, ...rest }: AppLayoutProps): ReactNode => {
           {modals?.['confirm-install-libraries']?.open === true && <ConfirmInstallLibrariesModal />}
           {modals?.['project-readme']?.open === true && <ProjectReadmeModal />}
           {modals?.['runtime-login']?.open === true && <RuntimeLoginModal />}
+          {modals?.['runtime-quick-connect']?.open === true && <RuntimeQuickConnectModal />}
           {modals?.['runtime-create-user']?.open === true && <RuntimeCreateUserModal />}
           {modals?.['runtime-discover-devices']?.open === true && <RuntimeDiscoverDevicesModal />}
           {modals?.['ai-consent']?.open === true && <AIConsentModal />}
           <AboutModal />
+          <SettingsModal />
           <AcceleratorHandler />
         </main>
       </div>

@@ -56,6 +56,9 @@ beforeEach(() => {
     aboutModalAccelerator: jest.fn().mockImplementation((cb: () => void) => {
       capturedHandlers.about = cb
     }),
+    settingsModalAccelerator: jest.fn().mockImplementation((cb: () => void) => {
+      capturedHandlers.settings = cb
+    }),
     quitAppRequest: jest.fn().mockImplementation((cb: () => void) => {
       capturedHandlers.quitApp = cb
     }),
@@ -102,6 +105,7 @@ testAccelerator('onUndo', 'undo', 'handleUndoRequest')
 testAccelerator('onRedo', 'redo', 'handleRedoRequest')
 testAccelerator('onSwitchPerspective', 'switchPerspective', 'switchPerspective')
 testAccelerator('onAbout', 'about', 'aboutModalAccelerator')
+testAccelerator('onOpenSettings', 'settings', 'settingsModalAccelerator')
 testAccelerator('onQuitApp', 'quitApp', 'quitAppRequest')
 
 describe('onOpenRecent', () => {

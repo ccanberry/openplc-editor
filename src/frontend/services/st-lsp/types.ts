@@ -39,6 +39,9 @@ export const POUVARS_URI_AUTHORITY = 'pouvars'
  * project's data-type set is global, not per-POU.
  */
 export const DATA_TYPES_URI = 'inmemory://datatypes/__project__.st'
+/** The resource's global variables, as one VAR_GLOBAL block: a POU uses them by name, without
+ *  VAR_EXTERNAL (CODESYS), so the language service must know them to resolve and hover them. */
+export const GLOBALS_URI = 'inmemory://globals/__resource__.st'
 
 /** Public service the rest of the renderer talks to. */
 export interface StLspService {

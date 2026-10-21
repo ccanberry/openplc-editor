@@ -9,11 +9,13 @@ import { MinusIcon } from '../../../../../../assets/icons/interface/Minus'
 import { PlusIcon } from '../../../../../../assets/icons/interface/Plus'
 import { RefreshIcon } from '../../../../../../assets/icons/interface/Refresh'
 import { boardSelectors, pinSelectors } from '../../../../../../hooks/use-store-selectors'
+import { useDevMode } from '../../../../../../services/editor-settings'
+import { connectToRuntime } from '../../../../../../services/runtime-connect'
 import { useOpenPLCStore } from '../../../../../../store'
 import type { RuntimeConnection } from '../../../../../../store/slices/device/types'
 import { cn } from '../../../../../../utils/cn'
 import { resolveDebugBuild } from '../../../../../../utils/debug-attach'
-import { isOpenPLCRuntimeTarget, isSimulatorTarget, validateRuntimeVersion } from '../../../../../../utils/device'
+import { isOpenPLCRuntimeTarget, isSimulatorTarget } from '../../../../../../utils/device'
 import { Checkbox } from '../../../../../_atoms/checkbox'
 import { DropdownSearchInput } from '../../../../../_atoms/dropdown-search-input'
 import { Label } from '../../../../../_atoms/label'
@@ -64,6 +66,8 @@ const Board = memo(function () {
   // main process for this connection only -- never saved in the project or anywhere else -- and
   // its sole use is the upload's deploy step. The field is cleared once it is handed over.
   const needsBoardPassword = (deviceBoard || '').startsWith('MCM20.1')
+  // Dev mode (File > Settings): a password kept for this board lets Connect go without typing it.
+  const devMode = useDevMode()
   const [boardPassword, setBoardPassword] = useState('')
   const [boardPasswordSet, setBoardPasswordSet] = useState(false)
   useEffect(() => {
@@ -369,104 +373,20 @@ const Board = memo(function () {
     if (!runtimeIpAddress) {
       return
     }
-    if (needsBoardPassword) {
-      if (boardPassword) {
-        const r = await runtime.setBoardPassword(boardPassword)
-        if (!r.success) {
-          setRuntimeConnectionStatus('error')
-          return
-        }
-        setBoardPassword('')
-        setBoardPasswordSet(true)
-      } else if (!boardPasswordSet) {
-        return
-      }
+    // The shared connect path (services/runtime-connect.ts): the same one Login uses when not
+    // connected. In dev mode a password typed here is kept for the next connection.
+    const typed = boardPassword
+    const result = await connectToRuntime(runtime, typed ? { boardPassword: typed } : {})
+    if (typed) setBoardPassword('')
+    setBoardPasswordSet(await runtime.hasBoardPassword())
+    if (!result.ok && result.reason !== 'cancelled') {
+      useOpenPLCStore.getState().consoleActions.addLog({
+        id: crypto.randomUUID(),
+        level: 'warning',
+        message: `Not connected: ${result.reason}`,
+      })
     }
-
-    setRuntimeConnectionStatus('connecting')
-
-    try {
-      const result = await runtime.getUsersInfo()
-
-      if (result.error) {
-        setRuntimeConnectionStatus('error')
-        return
-      }
-
-      // Validate runtime version matches the selected board target
-      const versionValidation = validateRuntimeVersion(deviceBoard, result.runtimeVersion)
-
-      // Helper to proceed with connection after validation
-      const proceedWithConnection = async () => {
-        if (result.hasUsers) {
-          // THE SUITE'S RUNTIME: the launcher handed its own login to the editor, so only the
-          // board password is asked. The dialog stays for a runtime that is not the Suite's.
-          const suite = runtime.loginWithSuiteAccount ? await runtime.loginWithSuiteAccount() : null
-          if (suite?.success && suite.accessToken) {
-            setRuntimeJwtToken(suite.accessToken)
-            setRuntimeConnectionStatus('connected')
-            return
-          }
-          openModal('runtime-login', null)
-        } else {
-          openModal('runtime-create-user', null)
-        }
-      }
-
-      if (versionValidation.status === 'mismatch') {
-        // Hard error for version mismatch - cannot proceed
-        setRuntimeConnectionStatus('error')
-        openModal('debugger-message', {
-          type: 'error',
-          title: 'Runtime Version Mismatch',
-          message: versionValidation.message || 'Unknown version mismatch error',
-          buttons: ['OK'],
-          onResponse: () => {
-            // No action needed, just close the modal
-          },
-        })
-        return
-      }
-
-      if (versionValidation.status === 'missing') {
-        // Warning for older runtimes - allow user to continue anyway
-        // Note: buttons ordered as ['Continue Anyway', 'Cancel'] so Cancel (index 1) is the default
-        // when closing the modal (DebuggerMessageModal calls onResponse with last button index on close)
-        openModal('debugger-message', {
-          type: 'warning',
-          title: 'Older Runtime Detected',
-          message: versionValidation.message || 'Could not detect runtime version.',
-          buttons: ['Continue Anyway', 'Cancel'],
-          onResponse: (buttonIndex: number) => {
-            if (buttonIndex === 0) {
-              // User clicked "Continue Anyway" - proceed with connection
-              void proceedWithConnection()
-            } else {
-              // User clicked "Cancel" or closed the modal - stay disconnected
-              setRuntimeConnectionStatus('disconnected')
-            }
-          },
-        })
-        return
-      }
-
-      // Version is OK - proceed normally
-      await proceedWithConnection()
-    } catch (_error) {
-      setRuntimeConnectionStatus('error')
-    }
-  }, [
-    runtime,
-    runtimeIpAddress,
-    needsBoardPassword,
-    boardPassword,
-    boardPasswordSet,
-    connectionStatus,
-    setRuntimeConnectionStatus,
-    setRuntimeJwtToken,
-    openModal,
-    deviceBoard,
-  ])
+  }, [runtime, runtimeIpAddress, boardPassword, connectionStatus, setRuntimeConnectionStatus, setRuntimeJwtToken])
 
   // Enable timing stats in global polling when this screen is visible
   useEffect(() => {
@@ -643,7 +563,9 @@ const Board = memo(function () {
                     placeholder={
                       boardPasswordSet
                         ? 'entered for this connection'
-                        : "the board's root password (needed to upload, never saved)"
+                        : devMode
+                          ? "the board's root password (dev mode: kept, encrypted, for the next connection)"
+                          : "the board's root password (needed to upload, never saved)"
                     }
                     className='flex h-[30px] min-w-0 flex-1 items-center justify-between gap-1 rounded-md border border-neutral-100 bg-white px-2 py-1 font-caption text-cp-sm font-medium text-neutral-850 outline-none focus:border-brand-medium-dark dark:border-neutral-850 dark:bg-neutral-950 dark:text-neutral-300'
                   />
@@ -655,7 +577,11 @@ const Board = memo(function () {
                   onClick={handleConnectToRuntime}
                   disabled={
                     connectionStatus === 'connecting' ||
-                    (connectionStatus !== 'connected' && needsBoardPassword && !boardPassword && !boardPasswordSet)
+                    (connectionStatus !== 'connected' &&
+                      needsBoardPassword &&
+                      !boardPassword &&
+                      !boardPasswordSet &&
+                      !devMode)
                   }
                   className='h-[30px] rounded-md bg-brand px-4 py-1 font-caption text-cp-sm font-medium text-white hover:bg-brand-medium-dark disabled:opacity-50'
                 >

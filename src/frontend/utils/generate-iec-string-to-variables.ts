@@ -92,6 +92,9 @@ export const parseIecStringToVariables = (
   let currentClass: PLCVariable['class'] | null = null
   // True while inside a `VAR RETAIN` section (CoDeSys POU-level retain).
   let currentRetain = false
+  // True while inside a `VAR RETAIN PERSISTENT` / `VAR PERSISTENT` section: kept through a clean
+  // upload too (a reset cold).
+  let currentPersistent = false
   // Tracks an open (* ... *) comment block spanning multiple lines.
   let inBlockComment = false
 
@@ -119,15 +122,20 @@ export const parseIecStringToVariables = (
       // `VAR RETAIN` (CoDeSys POU-level retain): same class as VAR, but
       // every declaration in the section carries `retain: true` so the
       // compile pipeline can expand the members into `retain-names.json`
-      // instance paths.  Other qualifiers (CONSTANT, PERSISTENT) are
-      // ignored here as before.
-      currentRetain = blockStart[1].toUpperCase() === 'VAR' && /^VAR\s+RETAIN\b/i.test(line)
+      // instance paths.  The same for a GVL's `VAR_GLOBAL RETAIN`.  PERSISTENT
+      // alone means RETAIN PERSISTENT (the runtime has no persistent-only kind).
+      // Other qualifiers (CONSTANT) are ignored here as before.
+      const kind = blockStart[1].toUpperCase()
+      const retainable = kind === 'VAR' || kind === 'VAR_GLOBAL'
+      currentPersistent = retainable && /^VAR(_GLOBAL)?\s+(RETAIN\s+PERSISTENT|PERSISTENT(\s+RETAIN)?)\b/i.test(line)
+      currentRetain = retainable && (currentPersistent || /^VAR(_GLOBAL)?\s+RETAIN\b/i.test(line))
       return
     }
 
     if (/^END_VAR\b/i.test(line)) {
       currentClass = null
       currentRetain = false
+      currentPersistent = false
       return
     }
 
@@ -172,6 +180,7 @@ export const parseIecStringToVariables = (
         documentation: documentation ? documentation.trim() : '',
         debug: false,
         ...(currentRetain ? { retain: true } : {}),
+        ...(currentPersistent ? { persistent: true } : {}),
       })
       return
     }
@@ -210,6 +219,7 @@ export const parseIecStringToVariables = (
       documentation: documentation ? documentation.trim() : '',
       debug: false,
       ...(currentRetain ? { retain: true } : {}),
+      ...(currentPersistent ? { persistent: true } : {}),
     })
   })
 

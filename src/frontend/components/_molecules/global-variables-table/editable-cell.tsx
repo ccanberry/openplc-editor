@@ -10,6 +10,7 @@ import { pinSelectors, remoteDeviceSelectors, vendorIoSelectors } from '../../..
 import { useOpenPLCStore } from '../../../store'
 import type { ProjectResponse } from '../../../store/slices/project'
 import { cn } from '../../../utils/cn'
+import { gvlNames } from '../../../utils/global-variable-lists'
 import { isLegalIdentifier, sanitizeVariableInput } from '../../../utils/keywords'
 import { buildRemoteDeviceOptionGroups, buildVendorIoOptionGroups } from '../../../utils/remote-device-options'
 import {
@@ -457,7 +458,7 @@ const EditableGroupCell = ({
     project: {
       data: {
         configurations: {
-          resource: { globalVariables },
+          resource,
         },
       },
     },
@@ -466,9 +467,7 @@ const EditableGroupCell = ({
   const [cellValue, setCellValue] = useState(initialValue ?? '')
   const [isEditing, setIsEditing] = useState(false)
 
-  const existingGroups = Array.from(
-    new Set(globalVariables.map((variable) => (variable.group ?? '').trim()).filter((group) => group.length > 0)),
-  ).sort()
+  const existingGroups = gvlNames(resource)
 
   const onBlur = () => {
     if (cellValue === (initialValue ?? '')) return setIsEditing(false)

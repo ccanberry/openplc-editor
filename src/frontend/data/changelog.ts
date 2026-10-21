@@ -12,6 +12,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.0',
+    date: '2026-10-21',
+    changes: [
+      'Global variable lists, as in CODESYS: Global Variables in the project tree holds one GVL per group (the groups become GVLs by themselves), each in its own tab with its table and its code. The code view is that GVL alone, in VAR_GLOBAL, VAR_GLOBAL RETAIN and VAR_GLOBAL RETAIN PERSISTENT blocks: moving a line to another block changes its flag. Add GVL, Rename and Delete are in the menu of a GVL; the GVL column of a row moves it to another GVL. Names stay unique across every GVL. The group filters are gone, and so are the Resource tab\'s global variables: the Resource tab holds the tasks and the program instances.',
+      'No VAR_EXTERNAL needed: a program or function block uses any global variable directly (CODESYS). The VAR_EXTERNAL rows are hidden in the variable tables; existing ones are kept and still compile.',
+      'Faster builds: each POU compiles to its own file and only what a change touches is compiled again (adding a global used in one program recompiles a few files in about 1.5 s instead of the whole project). The console shows how long each step took.',
+      'Download while logged in to a running PLC does an online change by itself: the program changes without stopping the PLC, and the login stays. When the change cannot be done online (another task layout, a halted breakpoint, an older core) the editor says why and offers a normal download.',
+      'PERSISTENT (CODESYS VAR RETAIN PERSISTENT): the Persistent column of the global variables and VAR RETAIN PERSISTENT in a POU. "Clean build and upload" is a reset cold now: every retained value goes back to its initial value, except the persistent ones (kept on the board in persist/retain.json.before-clean too).',
+      'The editor logs out by itself when the PLC stops, from RoboStudio, a terminal or the editor. Start PLC shows its progress until the PLC runs.',
+      'Login while not connected asks for the board address and password, connects and logs in, instead of refusing.',
+      'File > Settings (Ctrl+,): Dev mode, off by default. On, the board password of the last connection is kept, encrypted for this Windows user, and Connect and Login use it again without asking. Switching it off deletes every kept password.',
+    ],
+  },
+  {
     version: '1.10.5',
     date: '2026-10-20',
     changes: [

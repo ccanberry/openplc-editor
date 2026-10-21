@@ -72,9 +72,10 @@ const CreateEditorModelObject = (
   return CreatePLCTextualObject(name, language as 'il' | 'st' | 'python' | 'cpp', pouType)
 }
 
-const CreateResourceEditor = (name = 'Resource'): EditorModel => ({
+const CreateResourceEditor = (name = 'Resource', path = `/data/configuration/resource`): EditorModel => ({
   type: 'plc-resource',
-  meta: { name, path: `/data/configuration/resource` },
+  // A GVL tab's path names its GVL (utils/global-variable-lists GVL_TAB_PATH).
+  meta: { name, path },
   variable: { display: 'table', description: '', selectedRow: '-1' },
   task: { display: 'table', selectedRow: '-1' },
   instance: { display: 'table', selectedRow: '-1' },
@@ -160,7 +161,7 @@ const CreateEditorObjectFromTab = (tab: TabsProps): EditorModel => {
     case 'data-type':
       return CreateEditorModelObject(name, null, null, elementType.derivation)
     case 'resource':
-      return CreateResourceEditor(name)
+      return CreateResourceEditor(name, tab.path)
     case 'device':
       return CreateDeviceEditor(name, elementType.derivation)
     case 'remote-device':

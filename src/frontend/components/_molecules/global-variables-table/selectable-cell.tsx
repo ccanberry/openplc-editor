@@ -476,6 +476,54 @@ const SelectableRetainCell = ({ getValue, row: { index }, column: { id }, table 
 }
 
 /**
+ * PERSISTENT toggle (CODESYS `RETAIN PERSISTENT`): a retained value that a clean upload keeps
+ * too -- "Clean build and upload" puts every other retained value back to its initial value.
+ * Persistent implies retained, so switching it on also sets Retain.
+ */
+const SelectablePersistentCell = ({ getValue, row: { index }, column: { id }, table }: ISelectableCellProps) => {
+  const initialValue = getValue<boolean | undefined>() ?? false
+
+  const [cellValue, setCellValue] = useState(initialValue)
+
+  const onClick = () => {
+    const newValue = !cellValue
+    setCellValue(newValue)
+    table.options.meta?.updateData(index, id, newValue)
+    if (newValue) table.options.meta?.updateData(index, 'retain', true)
+  }
+
+  useEffect(() => {
+    setCellValue(initialValue)
+  }, [initialValue])
+
+  return (
+    <button
+      className='flex h-full w-full cursor-pointer items-center justify-center'
+      title={
+        cellValue
+          ? 'Persistent: kept through a clean upload as well as a power cycle'
+          : 'Not persistent: a clean upload puts it back to its initial value'
+      }
+      onClick={onClick}
+    >
+      <svg
+        width='16'
+        height='16'
+        viewBox='0 0 24 24'
+        fill='none'
+        stroke='currentColor'
+        strokeWidth='2'
+        className={cn('text-brand', { 'opacity-30 grayscale': !cellValue })}
+        aria-hidden='true'
+      >
+        <rect x='5' y='11' width='14' height='10' rx='2' />
+        <path d='M8 11V7a4 4 0 0 1 8 0v4' />
+      </svg>
+    </button>
+  )
+}
+
+/**
  * Publish toggle — same interaction pattern as `SelectableDebugCell`.
  * A flagged global gets a Modbus `%QW` register assigned automatically
  * at compile time and appears in the generated `conf/hmi_map.json`
@@ -507,4 +555,11 @@ const SelectablePublishCell = ({ getValue, row: { index }, column: { id }, table
   )
 }
 
-export { SelectableClassCell, SelectableDebugCell, SelectablePublishCell, SelectableRetainCell, SelectableTypeCell }
+export {
+  SelectableClassCell,
+  SelectableDebugCell,
+  SelectablePersistentCell,
+  SelectablePublishCell,
+  SelectableRetainCell,
+  SelectableTypeCell,
+}

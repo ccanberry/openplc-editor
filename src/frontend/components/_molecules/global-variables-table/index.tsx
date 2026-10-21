@@ -1,10 +1,10 @@
-import { ColumnFiltersState, createColumnHelper, OnChangeFn } from '@tanstack/react-table'
+import { ColumnFiltersState, createColumnHelper } from '@tanstack/react-table'
 import { useEffect, useMemo } from 'react'
 
 import type { PLCGlobalVariable } from '../../../../middleware/shared/ports/types'
-import { HMI_PUBLISH_DEFAULT_GROUP } from '../../../../middleware/shared/utils/hmi-publish'
 import { usePouSnapshot } from '../../../hooks/use-pou-snapshot'
 import { useOpenPLCStore } from '../../../store'
+import { gvlOf } from '../../../utils/global-variable-lists'
 import { GenericTable } from '../../_atoms/generic-table'
 import { LiveValueCell } from '../../_features/[workspace]/forcing/live-value-cell'
 import {
@@ -14,13 +14,14 @@ import {
   EditableLocationCell,
   EditableNameCell,
 } from './editable-cell'
-import { SelectablePublishCell, SelectableRetainCell, SelectableTypeCell } from './selectable-cell'
+import {
+  SelectablePersistentCell,
+  SelectablePublishCell,
+  SelectableRetainCell,
+  SelectableTypeCell,
+} from './selectable-cell'
 
 const columnHelper = createColumnHelper<PLCGlobalVariable>()
-
-/** Effective GVL group of a row — empty label collapses to the default. */
-export const groupOfVariable = (variable: Pick<PLCGlobalVariable, 'group'>): string =>
-  (variable.group ?? '').trim() || HMI_PUBLISH_DEFAULT_GROUP
 
 const columns = [
   columnHelper.display({
@@ -45,17 +46,16 @@ const columns = [
     enableResizing: true,
     cell: 'Global',
   }),
+  // The row's GVL: another name moves it to that GVL (a new name makes a new GVL).
   columnHelper.accessor('group', {
-    header: 'Group',
+    header: 'GVL',
     enableResizing: true,
     size: 160,
     minSize: 96,
     maxSize: 240,
     cell: EditableGroupCell,
-    // Group filters: the editor passes the ACTIVE group names as the filter value; with
-    // none active every row is shown, otherwise only the rows of an active group.
-    filterFn: (row, _columnId, activeGroups: string[]) =>
-      activeGroups.length === 0 || activeGroups.includes(groupOfVariable(row.original)),
+    // The GVL tab shows its own rows only (the filter value: [the GVL]).
+    filterFn: (row, _columnId, gvls: string[]) => gvls.length === 0 || gvls.includes(gvlOf(row.original)),
   }),
   columnHelper.accessor('type', {
     header: 'Type',
@@ -97,6 +97,13 @@ const columns = [
     maxSize: 64,
     cell: SelectableRetainCell,
   }),
+  columnHelper.accessor('persistent', {
+    header: 'Persistent',
+    size: 72,
+    minSize: 72,
+    maxSize: 72,
+    cell: SelectablePersistentCell,
+  }),
 ]
 
 /** While logged in: the live value; a click prepares it (F7 forces, Ctrl+F7 writes). A global's
@@ -115,16 +122,15 @@ type PLCVariablesTableProps = {
   tableData: PLCGlobalVariable[]
   selectedRow: number
   handleRowClick: (row: HTMLTableRowElement) => void
-  columnFilters?: ColumnFiltersState
-  setColumnFilters?: OnChangeFn<ColumnFiltersState>
+  /** The GVL shown; every row when absent. */
+  gvl?: string
 }
 
 const GlobalVariablesTable = ({
   tableData,
   selectedRow,
   handleRowClick,
-  columnFilters,
-  setColumnFilters,
+  gvl,
 }: PLCVariablesTableProps) => {
   const {
     editor: {
@@ -141,11 +147,13 @@ const GlobalVariablesTable = ({
     () => (isDebuggerVisible ? [...columns.slice(0, 2), liveColumn, ...columns.slice(2)] : columns),
     [isDebuggerVisible],
   )
-  // The globals shown here are polled while the resource is open and logged in.
+  const columnFilters = useMemo<ColumnFiltersState>(() => (gvl ? [{ id: 'group', value: [gvl] }] : []), [gvl])
+  // The globals shown here are polled while the GVL is open and logged in.
   useEffect(() => {
-    setExtraKeys('resource-globals', isDebuggerVisible ? tableData.map((v) => v.name.toUpperCase()) : [])
+    const shown = gvl ? tableData.filter((v) => gvlOf(v) === gvl) : tableData
+    setExtraKeys('resource-globals', isDebuggerVisible ? shown.map((v) => v.name.toUpperCase()) : [])
     return () => setExtraKeys('resource-globals', [])
-  }, [isDebuggerVisible, tableData, setExtraKeys])
+  }, [isDebuggerVisible, tableData, gvl, setExtraKeys])
 
   return (
     <GenericTable<PLCGlobalVariable>
@@ -154,7 +162,6 @@ const GlobalVariablesTable = ({
       selectedRow={selectedRow}
       handleRowClick={handleRowClick}
       columnFilters={columnFilters}
-      setColumnFilters={setColumnFilters}
       updateData={(rowIndex, columnId, value) => {
         captureAndPush(name)
         const result = updateVariable({ scope: 'global', rowId: rowIndex, data: { [columnId]: value } })

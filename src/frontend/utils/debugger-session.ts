@@ -20,6 +20,7 @@ import { packDebugAddr } from './debug-parser'
 import { buildDebugTree } from './debug-tree-builder'
 import { parseArrayDimension } from './debug-tree-traversal'
 import { buildDebugPathPrefix, type PLCInstanceMapping, resolveProgramInstanceName } from './debug-variable-finder'
+import { pousWithImplicitExternals } from './implicit-externals'
 
 // ---------------------------------------------------------------------------
 // 0. logCompilerEvent — shared log helper for compile/debug progress
@@ -161,7 +162,12 @@ export function buildDebugVariableTreeMap(
   debugVariables: DebugVariableEntry[],
   projectData: { dataTypes: PLCDataType[]; pous: PLCPou[] },
   systemLibraries: SystemLibrary[],
+  /** The resource's globals: a POU uses them by name, without VAR_EXTERNAL. */
+  globals?: PLCVariable[],
 ): DebugVariableTreeMapResult {
+  // Globals a body uses without declaring them are its externals here (implicit-externals.ts).
+  pous = pousWithImplicitExternals(pous, globals)
+  projectData = { ...projectData, pous: pousWithImplicitExternals(projectData.pous, globals) }
   const trees: DebugTreeNode[] = []
   const treeMap = new Map<string, DebugTreeNode>()
   const warnings: string[] = []

@@ -232,3 +232,15 @@ describe('VAR RETAIN round trip (POU-level retained locals)', () => {
   })
 })
 
+describe('VAR RETAIN PERSISTENT round trip', () => {
+  it('emits persistent locals in a VAR RETAIN PERSISTENT section after VAR RETAIN', () => {
+    const base = { type: { definition: 'base-type', value: 'INT' }, location: '', initialValue: null, documentation: '', debug: false }
+    const text = generateIecVariablesToString([
+      { name: 'hours', class: 'local', retain: true, persistent: true, ...base },
+      { name: 'r', class: 'local', retain: true, ...base },
+    ] as PLCVariable[])
+    expect(text.indexOf('VAR RETAIN\n')).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('VAR RETAIN PERSISTENT\n')).toBeGreaterThan(text.indexOf('VAR RETAIN\n'))
+    expect(text).toMatch(/VAR RETAIN PERSISTENT\n\s+hours : INT;/)
+  })
+})

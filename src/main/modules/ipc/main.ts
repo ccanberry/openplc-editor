@@ -27,8 +27,8 @@ import { CreateProjectFileProps } from '@root/types/IPC/project-service'
 import { randomUUID } from 'crypto'
 import dgram from 'dgram'
 import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron'
-import { app, dialog, nativeTheme, shell } from 'electron'
-import { readFile, realpathSync, stat, statSync, unwatchFile, watchFile } from 'fs'
+import { app, dialog, nativeTheme, safeStorage, shell } from 'electron'
+import { existsSync, readFile, readFileSync, realpathSync, stat, statSync, unwatchFile, watchFile, writeFileSync } from 'fs'
 import { unlink, writeFile } from 'fs/promises'
 import type { IncomingHttpHeaders, IncomingMessage } from 'http'
 import https from 'https'
@@ -724,6 +724,59 @@ class MainProcessBridge implements MainIpcModule {
 
   handleRuntimeHasBoardPassword = (_event: IpcMainInvokeEvent) => ({ success: true, set: this.boardPassword !== null })
 
+  // ===================== DEV MODE: REMEMBERED BOARD PASSWORDS =====================
+  // Only while the user has switched dev mode on (File > Settings). The password is encrypted
+  // with the OS user's key (Electron safeStorage: DPAPI on Windows) in this user's app data, keyed
+  // by the board's IP address, and is never handed back to the renderer: "use" loads it into
+  // this connection the way setBoardPassword does. Dev mode off deletes the file.
+  private boardPasswordFile(): string {
+    return join(app.getPath('userData'), 'board-passwords.json')
+  }
+
+  private readBoardPasswords(): Record<string, string> {
+    try {
+      const file = this.boardPasswordFile()
+      if (!existsSync(file)) return {}
+      const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'))
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, string>) : {}
+    } catch {
+      return {}
+    }
+  }
+
+  handleRuntimeRememberBoardPassword = (_event: IpcMainInvokeEvent, ip: string) => {
+    if (!this.boardPassword || typeof ip !== 'string' || !ip) return { success: false, error: 'no board password set' }
+    if (!safeStorage.isEncryptionAvailable()) return { success: false, error: 'the OS cannot encrypt it' }
+    const all = this.readBoardPasswords()
+    all[ip] = safeStorage.encryptString(this.boardPassword).toString('base64')
+    try {
+      writeFileSync(this.boardPasswordFile(), JSON.stringify(all), { mode: 0o600 })
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeUseRememberedBoardPassword = (_event: IpcMainInvokeEvent, ip: string) => {
+    const enc = this.readBoardPasswords()[ip]
+    if (!enc || !safeStorage.isEncryptionAvailable()) return { success: true, found: false }
+    try {
+      this.boardPassword = safeStorage.decryptString(Buffer.from(enc, 'base64'))
+      return { success: true, found: true }
+    } catch {
+      return { success: true, found: false }
+    }
+  }
+
+  handleRuntimeForgetBoardPasswords = (_event: IpcMainInvokeEvent) => {
+    try {
+      if (existsSync(this.boardPasswordFile())) writeFileSync(this.boardPasswordFile(), '{}', { mode: 0o600 })
+      return { success: true }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
   // ===================== RUNTIME LAN DISCOVERY =====================
   private readonly DISCOVERY_PORT = 33333
   private readonly DISCOVERY_MAGIC = 'OPENPLC_DISCOVER_V1'
@@ -1021,6 +1074,9 @@ class MainProcessBridge implements MainIpcModule {
     this.registerHandle('runtime:clear-credentials', this.handleRuntimeClearCredentials)
     this.registerHandle('runtime:set-board-password', this.handleRuntimeSetBoardPassword)
     this.registerHandle('runtime:has-board-password', this.handleRuntimeHasBoardPassword)
+    this.registerHandle('runtime:remember-board-password', this.handleRuntimeRememberBoardPassword)
+    this.registerHandle('runtime:use-remembered-board-password', this.handleRuntimeUseRememberedBoardPassword)
+    this.registerHandle('runtime:forget-board-passwords', this.handleRuntimeForgetBoardPasswords)
     this.registerHandle('runtime:get-serial-ports', this.handleRuntimeGetSerialPorts)
     this.registerHandle('runtime:discover-devices', this.handleRuntimeDiscoverDevices)
 

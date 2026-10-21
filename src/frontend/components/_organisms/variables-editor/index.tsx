@@ -32,7 +32,7 @@ import TableActions from '../../_atoms/table-actions'
 import { toast } from '../../_features/[app]/toast/use-toast'
 import { RenameImpactModal } from '../../_molecules/rename-impact-modal'
 import { TypeChangeModal } from '../../_molecules/type-change-modal'
-import { VariablesTable } from '../../_molecules/variables-table'
+import { VARIABLES_CLASS_FILTER_ALL, VariablesTable } from '../../_molecules/variables-table'
 import { VariablesCodeEditor } from '../variables-code-editor'
 
 interface VariablesEditorProps {
@@ -119,7 +119,10 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
    * Table data and column filters states to keep track of the table data and column filters
    */
   const [tableData, setTableData] = useState<PLCVariable[]>([])
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+  // Always one filter on the Class column: it also hides VAR_EXTERNAL rows (see classFilterFn).
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([
+    { id: 'class', value: VARIABLES_CLASS_FILTER_ALL },
+  ])
   const [returnType, setReturnType] = useState('BOOL')
   const [returnTypeOptions, setReturnTypeOptions] = useState<string[]>([])
   const [editorCode, setEditorCode] = useState(() => {
@@ -130,7 +133,7 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
     ) {
       return editor.variable.code
     }
-    return generateIecVariablesToString(tableData)
+    return generateIecVariablesToString(withoutExternals(tableData))
   })
   const [parseError, setParseError] = useState<string | null>(null)
   const [pouDescription, setPouDescription] = useState<string>('')
@@ -154,7 +157,10 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
    * Editor name state to keep track of the editor name
    * Other states to keep track of the editor's variables and display at the screen
    */
-  const FilterOptions = ['All', 'Local', 'Input', 'Output', 'InOut', 'External', 'Temp'] as const
+  const FilterOptions = ['All', 'Local', 'Input', 'Output', 'InOut', 'Temp'] as const
+  // The Class filter's column value; 'External' (no longer offered) shows everything visible.
+  const classFilterValue = (f: string): string =>
+    f === 'All' || f === 'External' ? VARIABLES_CLASS_FILTER_ALL : f.toLowerCase()
   type FilterOptionsType = (typeof FilterOptions)[number]
   const [editorVariables, setEditorVariables] = useState<VariablesTableType>(() => {
     if (editor.type === 'plc-textual' || editor.type === 'plc-graphical') {
@@ -203,7 +209,7 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
 
   useEffect(() => {
     if (editorVariables.display !== 'code') {
-      setEditorCode(generateIecVariablesToString(tableData))
+      setEditorCode(generateIecVariablesToString(withoutExternals(tableData)))
     }
   }, [tableData, editorVariables.display])
 
@@ -229,7 +235,7 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
       setEditorCode(
         typeof code === 'string' && code.length > 0
           ? code
-          : generateIecVariablesToString(targetPou?.interface?.variables ?? []),
+          : generateIecVariablesToString(withoutExternals(targetPou?.interface?.variables ?? [])),
       )
     } else {
       setEditorVariables({
@@ -342,9 +348,7 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
           description: description,
         })
         setColumnFilters((prev) =>
-          classFilter !== 'All'
-            ? prev.filter((filter) => filter.id !== 'class').concat({ id: 'class', value: classFilter.toLowerCase() })
-            : prev.filter((filter) => filter.id !== 'class'),
+          prev.filter((filter) => filter.id !== 'class').concat({ id: 'class', value: classFilterValue(classFilter) }),
         )
       } else if (editor.variable.display === 'code') {
         const code = editor.variable.code
@@ -494,9 +498,7 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
 
   const handleFilterChange = (value: FilterOptionsType) => {
     setColumnFilters((prev) =>
-      value !== 'All'
-        ? prev.filter((filter) => filter.id !== 'class').concat({ id: 'class', value: value.toLowerCase() })
-        : prev.filter((filter) => filter.id !== 'class'),
+      prev.filter((filter) => filter.id !== 'class').concat({ id: 'class', value: classFilterValue(value) }),
     )
     updateModelVariables({
       display: 'table',
@@ -1346,5 +1348,10 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
     </>
   )
 }
+
+/** The code view leaves VAR_EXTERNAL out, as the table does: a POU uses the resource's globals
+ *  by name and the compiler declares them. Committing the code view drops old externs. */
+const withoutExternals = (variables: PLCVariable[]): PLCVariable[] =>
+  variables.filter((v) => (v.class ?? '').toLowerCase() !== 'external')
 
 export { VariablesEditor }

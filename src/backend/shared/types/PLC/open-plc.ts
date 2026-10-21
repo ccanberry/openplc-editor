@@ -171,6 +171,13 @@ const PLCVariableSchema = z.object({
    */
   retain: z.boolean().optional(),
   /**
+   * PERSISTENT (CODESYS `VAR RETAIN PERSISTENT`): a retained value that survives a clean upload
+   * too. "Clean build and upload" is a reset cold -- every retained value goes back to its
+   * initial value -- except these (retain-names.json `persistent`; the runtime's
+   * scripts/tools/retain-clean.py). Implies `retain`.
+   */
+  persistent: z.boolean().optional(),
+  /**
    * GVL group label (global variables only). Purely a per-variable
    * grouping tag — storage stays one flat array, so legacy projects
    * load unchanged (absent = group "Global").
@@ -293,6 +300,12 @@ const PLCConfigurationSchema = z.object({
     tasks: z.array(PLCTaskSchema),
     instances: z.array(PLCInstanceSchema),
     globalVariables: z.array(PLCVariableSchema.omit({ class: true })),
+    /**
+     * The global variable lists (CODESYS: GVL objects), in tree order. A variable belongs to the
+     * GVL named by its `group`; this list only keeps the order and the empty GVLs. Absent = the
+     * groups the variables name, in order of first use.
+     */
+    globalVariableLists: z.array(z.string()).optional(),
   }),
 })
 type PLCConfiguration = z.infer<typeof PLCConfigurationSchema>

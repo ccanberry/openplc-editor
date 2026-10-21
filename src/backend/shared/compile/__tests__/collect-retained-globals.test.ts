@@ -29,8 +29,32 @@ describe('collectRetainedGlobals', () => {
     })
     expect(result.names).toEqual([])
     expect(result.warnings).toEqual([])
-    expect(JSON.parse(result.retainNamesJson)).toEqual({ version: 1, md5: 'abc123', names: [] })
+    expect(JSON.parse(result.retainNamesJson)).toEqual({ version: 1, md5: 'abc123', names: [], persistent: [] })
     expect(result.retainNamesJson.endsWith('\n')).toBe(true)
+  })
+
+  it('lists PERSISTENT globals and POU variables (kept by a clean upload), which are retained too', () => {
+    const result = collectRetainedGlobals({
+      globalVariables: [
+        { name: 'CAL', retain: true },
+        { name: 'HOURS', persistent: true },
+      ],
+      debugMapContent: debugMap(['CAL[1]', 'CAL[2]', 'HOURS', 'LOCK.RUNMINUTES', 'LOCK.TICKS']),
+      md5: 'abc123',
+      pous: [
+        {
+          name: 'LOCK',
+          pouType: 'program',
+          variables: [
+            { name: 'RunMinutes', retain: true, persistent: true },
+            { name: 'Ticks', retain: true },
+          ],
+        },
+      ],
+    })
+    expect(result.names).toEqual(['CAL[1]', 'CAL[2]', 'HOURS', 'LOCK.RUNMINUTES', 'LOCK.TICKS'])
+    expect(result.persistent).toEqual(['HOURS', 'LOCK.RUNMINUTES'])
+    expect(JSON.parse(result.retainNamesJson).persistent).toEqual(['HOURS', 'LOCK.RUNMINUTES'])
   })
 
   it('declares a scalar global by its exact leaf path', () => {

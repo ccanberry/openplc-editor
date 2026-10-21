@@ -20,13 +20,16 @@ import { StopIcon } from '../../../assets/icons/interface/Stop'
 import { useDebugPolling } from '../../../hooks/useDebugPolling'
 import { useDebugSession } from '../../../hooks/useDebugSession'
 import { useRunControlSync } from '../../../hooks/useRunControl'
+import { isDevMode } from '../../../services/editor-settings'
 import { releaseForces } from '../../../services/forcing'
+import { connectToRuntime, needsBoardPassword } from '../../../services/runtime-connect'
 import { executeSaveProject } from '../../../services/save-actions'
 import { useOpenPLCStore } from '../../../store'
 import type { RuntimeConnection } from '../../../store/slices/device/types'
 import { cn } from '../../../utils/cn'
 import { decideAttach, parseCheckpointFingerprint, resolveDebugBuild } from '../../../utils/debug-attach'
 import { logCompilerEvent } from '../../../utils/debugger-session'
+import { isOpenPLCRuntimeTarget } from '../../../utils/device'
 import { getErrorMessage } from '../../../utils/get-error-message'
 import { type BuildOption, BuildOptionsPopover } from '../../_features/[workspace]/build-options'
 import { ChatButton } from '../../_molecules/workspace-activity-bar/default/chat'
@@ -35,6 +38,7 @@ import { PlayButton } from '../../_molecules/workspace-activity-bar/default/play
 import { SearchButton } from '../../_molecules/workspace-activity-bar/default/search'
 import { ZoomButton } from '../../_molecules/workspace-activity-bar/default/zoom'
 import { TooltipSidebarWrapperButton } from '../../_molecules/workspace-activity-bar/tooltip-button'
+import type { RuntimeQuickConnectData } from '../modals/runtime-quick-connect-modal'
 
 /** Does an upload carry online-debugger support? The project's choice, else the board's default. */
 function projectDebugBuildDefault(): boolean {
@@ -75,6 +79,21 @@ const showDebuggerIpInput = (title: string, message: string, defaultValue: strin
     })
   })
 }
+
+/** Login while not connected: ask for the board's address and password (null: cancelled). */
+const askRuntimeConnection = (
+  defaultIp: string,
+  needsPassword: boolean,
+): Promise<{ ip: string; password: string } | null> =>
+  new Promise((resolve) => {
+    const data: RuntimeQuickConnectData = {
+      defaultIp,
+      needsPassword,
+      onSubmit: (answer) => resolve(answer),
+      onCancel: () => resolve(null),
+    }
+    useOpenPLCStore.getState().modalActions.openModal('runtime-quick-connect', data)
+  })
 
 const disabledButtonClass = 'cursor-not-allowed opacity-50 [&>*:first-child]:hover:bg-transparent'
 
@@ -124,6 +143,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const reloginRef = useRef<(() => Promise<void>) | null>(null)
   const [simulatorRunning, setSimulatorRunning] = useState(false)
   const pendingSimulatorDebugRef = useRef(false)
+  // True while an upload runs: its own stop of the PLC is not a reason to log out.
+  const deployingRef = useRef(false)
+  // Start pressed, the PLC not RUNNING yet (the board waits for robocnc before it starts it).
+  const [plcStarting, setPlcStarting] = useState(false)
 
   const connectionStatus = useOpenPLCStore((state) => state.runtimeConnection.connectionStatus)
   const plcStatus = useOpenPLCStore((state): RuntimeConnection['plcStatus'] => state.runtimeConnection.plcStatus)
@@ -146,6 +169,23 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
   const currentBoardInfo = availableBoards.get(deviceDefinitions.configuration.deviceBoard)
   const isSimulatorBoard = resolveTargetCapabilities(currentBoardInfo).isInProcessSimulator
+
+  // LOGGED OUT WHEN THE PLC STOPS OR THE BOARD IS GONE -- stopped from RoboStudio, a terminal or
+  // here, an error, or the runtime connection lost. The session showed values of a program that no
+  // longer runs and its breakpoints went with it. An upload's own stop is not counted (it logs in
+  // again to the new program, or out when the PLC stays stopped).
+  useEffect(() => {
+    if (!isDebuggerVisible || isSimulatorBoard || deployingRef.current || isDebuggerProcessing) return
+    const lost = connectionStatus !== 'connected'
+    const stopped = plcStatus === 'STOPPED' || plcStatus === 'EMPTY' || plcStatus === 'ERROR'
+    if (!lost && !stopped) return
+    addLog({
+      id: crypto.randomUUID(),
+      level: 'warning',
+      message: `Logged out: ${lost ? 'the connection to the runtime was lost' : `the PLC is ${plcStatus}`}.`,
+    })
+    void debugSession.stopSession()
+  }, [plcStatus, connectionStatus, isDebuggerVisible, isSimulatorBoard, isDebuggerProcessing, debugSession, addLog])
 
   // Sync simulatorRunning when the simulator stops externally
   useEffect(() => {
@@ -200,8 +240,38 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       /** ONLINE CHANGE: the board swaps its running program for this build at a scan
        *  boundary, keeping every variable's value. Nothing is stopped. */
       onlineChange?: boolean
+      /** The online change was chosen by the editor (logged in, PLC running): refused, ask
+       *  before falling back to a stop-and-download. */
+      autoOnline?: boolean
+      /** Never turn this upload into an online change (the fallback download itself). */
+      noAutoOnline?: boolean
     }): Promise<boolean> => {
       if (isCompiling) return false
+
+      // LOGGED IN AND THE PLC RUNS: the upload is an ONLINE CHANGE (CODESYS "Login with online
+      // change", TIA "download in RUN") -- the board swaps its program at a scan boundary and
+      // keeps every value, nothing stops. Refused (another task layout, a halted breakpoint, an
+      // old core), it asks before a download that stops the PLC.
+      {
+        const st = useOpenPLCStore.getState()
+        if (
+          !overrides?.compileOnly &&
+          !overrides?.cleanBuild &&
+          !overrides?.onlineChange &&
+          !overrides?.noAutoOnline &&
+          st.workspace.isDebuggerVisible &&
+          st.runtimeConnection.connectionStatus === 'connected' &&
+          st.runtimeConnection.plcStatus === 'RUNNING' &&
+          (st.deviceDefinitions.configuration.deviceBoard || '').startsWith('MCM20.1')
+        ) {
+          return handleBuildRef.current({ ...overrides, onlineChange: true, autoOnline: true })
+        }
+      }
+      const wasLoggedIn = useOpenPLCStore.getState().workspace.isDebuggerVisible
+      // Every build line carries the time since the build started, so a slow step shows itself.
+      const buildStart = performance.now()
+      const elapsed = () => `[${((performance.now() - buildStart) / 1000).toFixed(1)} s]`
+      let onlineRefusal: string | null = null
 
       // Reveal the console and re-attach it to the tail so build output is
       // visible from the first line, even if the console was collapsed or the
@@ -320,6 +390,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       // Success is reported back so the debugger's compile-and-deploy path can
       // gate connecting on a clean deploy.  Normal callers `void` the result.
       let buildOk = false
+      // A download stops the PLC on the way: the auto-logout must not read that as a stop.
+      if (!overrides?.compileOnly) deployingRef.current = true
       try {
         // Track whether the compile stream already surfaced an error so we
         // don't log a second, generic "Compilation failed" after a failed
@@ -367,7 +439,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
             if (event.level === 'error' || event.stage === 'error') {
               streamedError = true
             }
-            logCompilerEvent(event, addLog)
+            if (event.message && /online change refused/i.test(event.message)) onlineRefusal = event.message
+            logCompilerEvent(event.message ? { ...event, message: `${elapsed()} ${event.message}` } : event, addLog)
             if (event.firmwarePath && isSimulatorBoard) {
               void simulator.loadFirmware(event.firmwarePath).then((loadResult) => {
                 if (loadResult.success) {
@@ -404,6 +477,42 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         addLog({ id: crypto.randomUUID(), level: 'error', message: `Build error: ${getErrorMessage(err)}` })
       } finally {
         setIsCompiling(false)
+      }
+      deployingRef.current = false
+      if (buildOk) {
+        addLog({
+          id: crypto.randomUUID(),
+          level: 'info',
+          message: `${overrides?.compileOnly ? 'Build' : overrides?.onlineChange ? 'Online change' : 'Build and upload'} finished in ${((performance.now() - buildStart) / 1000).toFixed(1)} s`,
+        })
+      }
+      if (!buildOk && overrides?.autoOnline) {
+        const reason = onlineRefusal
+          ? String(onlineRefusal).replace(/^.*online change refused:\s*/i, '')
+          : 'the online change did not complete'
+        const choice = await showDebuggerMessage(
+          'question',
+          'Online change not possible',
+          `${reason}\n\nDownload instead? The PLC stops, takes the new program and starts again.`,
+          ['Download', 'Cancel'],
+          { primaryButtonIndex: 0, dismissButtonIndex: 1 },
+        )
+        if (choice !== 0) return false
+        return handleBuildRef.current({ ...overrides, onlineChange: false, autoOnline: false, noAutoOnline: true })
+      }
+      // A DOWNLOAD WHILE LOGGED IN restarted the program: the session belongs to the old one. Log
+      // in again to the new one when it runs; logged out when the PLC stays stopped.
+      if (buildOk && wasLoggedIn && !overrides?.compileOnly && !overrides?.onlineChange) {
+        void (async () => {
+          await debugSession.stopSession()
+          if (useOpenPLCStore.getState().runtimeConnection.plcStatus === 'RUNNING') {
+            addLog({ id: crypto.randomUUID(), level: 'info', message: 'Download done: logging in to the new program...' })
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            void reloginRef.current?.()
+          } else {
+            addLog({ id: crypto.randomUUID(), level: 'info', message: 'Logged out: the PLC is stopped after the download.' })
+          }
+        })()
       }
       // Uploaded while logged in: the PLC runs what is on screen again.
       if (buildOk && !overrides?.compileOnly) {
@@ -526,7 +635,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   // ---------------------------------------------------------------------------
 
   const handlePlcControl = useCallback(async (): Promise<void> => {
-    if (!jwtToken || connectionStatus !== 'connected') return
+    if (!jwtToken || connectionStatus !== 'connected' || plcStarting) return
 
     try {
       if (plcStatus === 'RUNNING') {
@@ -540,14 +649,55 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           return
         }
       } else {
-        const result = await runtime.startPlc()
-        if (!result.success) {
+        // START, AND SAY WHEN IT RUNS. On the MCM20.1 the board holds the start until robocnc is
+        // ready (up to two minutes after a robocnc restart); the reply comes back before that, so
+        // without this the button looked like it did nothing.
+        setPlcStarting(true)
+        addLog({ id: crypto.randomUUID(), level: 'info', message: 'Starting the PLC...' })
+        try {
+          const result = await runtime.startPlc()
+          if (!result.success) {
+            addLog({
+              id: crypto.randomUUID(),
+              level: 'error',
+              message: `Failed to start PLC: ${result.error ?? 'Unknown error'}`,
+            })
+            return
+          }
+          const t0 = performance.now()
+          for (let i = 0; i < 150; i++) {
+            const st = await runtime.getStatus()
+            const status = typeof st.status === 'string' ? st.status.replace('STATUS:', '').trim() : ''
+            if (st.success && status) {
+              useOpenPLCStore
+                .getState()
+                .deviceActions.setPlcRuntimeStatus(status as NonNullable<RuntimeConnection['plcStatus']>)
+            }
+            if (status === 'RUNNING') {
+              addLog({
+                id: crypto.randomUUID(),
+                level: 'info',
+                message: `PLC running (${((performance.now() - t0) / 1000).toFixed(0)} s).`,
+              })
+              return
+            }
+            if (i === 5) {
+              addLog({
+                id: crypto.randomUUID(),
+                level: 'info',
+                message: 'The board is still starting the PLC (it waits for robocnc to be ready)...',
+              })
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
           addLog({
             id: crypto.randomUUID(),
-            level: 'error',
-            message: `Failed to start PLC: ${result.error ?? 'Unknown error'}`,
+            level: 'warning',
+            message: 'The PLC did not report RUNNING within 150 s: see its log in RoboStudio (System page).',
           })
           return
+        } finally {
+          setPlcStarting(false)
         }
       }
 
@@ -560,7 +710,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     } catch (error: unknown) {
       addLog({ id: crypto.randomUUID(), level: 'error', message: `PLC control error: ${getErrorMessage(error)}` })
     }
-  }, [runtime, jwtToken, connectionStatus, plcStatus, addLog])
+  }, [runtime, jwtToken, connectionStatus, plcStatus, addLog, plcStarting])
 
   // ---------------------------------------------------------------------------
   // Simulator control (Start/Stop simulator + auto-debug)
@@ -862,7 +1012,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     projectPath: string,
     boardTarget: string,
     debugConfig: DebugConnectionConfig,
-  ): Promise<'attach' | 'monitor' | 'deploy' | 'cancel'> => {
+  ): Promise<'attach' | 'monitor' | 'online' | 'deploy' | 'cancel'> => {
     const { consoleActions } = useOpenPLCStore.getState()
     const log = (level: 'info' | 'warning', message: string) =>
       consoleActions.addLog({ id: crypto.randomUUID(), level, message })
@@ -905,6 +1055,22 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       await showDebuggerMessage('error', 'Cannot debug this target', decision.reason, ['OK'])
       return 'cancel'
     }
+    // The PLC runs another version of this program: CODESYS asks "online change or download".
+    // The online change keeps the PLC running and every value; the download restarts it.
+    const st = useOpenPLCStore.getState()
+    const canOnline =
+      st.runtimeConnection.plcStatus === 'RUNNING' && (st.deviceDefinitions.configuration.deviceBoard || '').startsWith('MCM20.1')
+    if (canOnline) {
+      const choice = await showDebuggerMessage(
+        'question',
+        'Login: the program has changed',
+        `${decision.reason}\n\nOnline change: the running PLC takes the new program at a scan boundary, nothing ` +
+          'stops and every value is kept. Download: the PLC stops, takes the new program and starts again.',
+        ['Online change and log in', 'Download and log in', 'Cancel'],
+        { primaryButtonIndex: 0, dismissButtonIndex: 2 },
+      )
+      return choice === 0 ? 'online' : choice === 1 ? 'deploy' : 'cancel'
+    }
     const response = await showDebuggerMessage(
       'question',
       'Login: download the program?',
@@ -915,6 +1081,32 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     )
     return response === 0 ? 'deploy' : 'cancel'
   }
+
+  /** Connect to the board's runtime for Login: dev mode's kept password first, else ask for the
+   *  address and the board password (services/runtime-connect.ts does the rest). */
+  const ensureRuntimeConnection = useCallback(async (): Promise<boolean> => {
+    const { consoleActions } = useOpenPLCStore.getState()
+    if (isDevMode()) {
+      const r = await connectToRuntime(runtime)
+      if (r.ok) return true
+    }
+    for (;;) {
+      const st = useOpenPLCStore.getState()
+      const answer = await askRuntimeConnection(
+        st.deviceDefinitions.configuration.runtimeIpAddress || '',
+        needsBoardPassword(st.deviceDefinitions.configuration.deviceBoard),
+      )
+      if (!answer) {
+        consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Login cancelled: not connected.' })
+        return false
+      }
+      if (answer.ip) st.deviceActions.setRuntimeIpAddress(answer.ip)
+      const r = await connectToRuntime(runtime, answer.password ? { boardPassword: answer.password } : {})
+      if (r.ok) return true
+      if (r.reason === 'cancelled') return false
+      consoleActions.addLog({ id: crypto.randomUUID(), level: 'warning', message: `Not connected: ${r.reason}` })
+    }
+  }, [runtime])
 
   const handleDebuggerClick = useCallback(async () => {
     // Simulator targets debug through the Start Simulator button
@@ -974,6 +1166,16 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       const projectPath = project.meta.path
       const boardInfo = availableBoards.get(boardTarget)
 
+      // NOT CONNECTED: connect first instead of refusing -- the kept password in dev mode, else
+      // one dialog for the board's address and password.
+      if (isOpenPLCRuntimeTarget(boardInfo) && useOpenPLCStore.getState().runtimeConnection.connectionStatus !== 'connected') {
+        const connected = await ensureRuntimeConnection()
+        if (!connected) {
+          setIsDebuggerProcessing(false)
+          return
+        }
+      }
+
       const debugConfig = await resolveDebugConfigWithUx(boardTarget, boardInfo?.debug)
       if (!debugConfig) {
         setIsDebuggerProcessing(false)
@@ -998,6 +1200,24 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Login cancelled.' })
           setIsDebuggerProcessing(false)
           return
+        }
+        if (plan === 'online') {
+          // Refused, handleBuild asks before falling back to a download (autoOnline).
+          const changed = await handleBuild({
+            compileOnly: false,
+            debugCheckpoints: true,
+            onlineChange: true,
+            autoOnline: true,
+          })
+          if (!changed) {
+            consoleActions.addLog({
+              id: crypto.randomUUID(),
+              level: 'info',
+              message: 'Login cancelled: the program on the PLC was not changed.',
+            })
+            setIsDebuggerProcessing(false)
+            return
+          }
         }
         if (plan === 'deploy') {
           // Debug deploy (CoDeSys "download"): instrument every statement, upload to the
@@ -1063,6 +1283,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     addLog,
     resolveDebugConfigWithUx,
     handleBuild,
+    ensureRuntimeConnection,
   ])
   reloginRef.current = handleDebuggerClick
 
@@ -1140,20 +1361,24 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
                   : 'Start Simulator'
                 : connectionStatus !== 'connected'
                   ? 'Connect to runtime first'
-                  : plcStatus === 'RUNNING'
-                    ? 'Stop PLC'
-                    : 'Start PLC'
+                  : plcStarting
+                    ? 'Starting the PLC...'
+                    : plcStatus === 'RUNNING'
+                      ? 'Stop PLC'
+                      : 'Start PLC'
             }
           >
             <PlayButton
               onClick={isSimulatorBoard ? () => void handleSimulatorControl() : () => void handlePlcControl()}
-              disabled={isSimulatorBoard ? isCompiling || isDebuggerProcessing : connectionStatus !== 'connected'}
+              disabled={
+                isSimulatorBoard ? isCompiling || isDebuggerProcessing : connectionStatus !== 'connected' || plcStarting
+              }
               className={cn(
                 isSimulatorBoard
                   ? isCompiling || isDebuggerProcessing
                     ? disabledButtonClass
                     : ''
-                  : connectionStatus !== 'connected'
+                  : connectionStatus !== 'connected' || plcStarting
                     ? disabledButtonClass
                     : '',
               )}

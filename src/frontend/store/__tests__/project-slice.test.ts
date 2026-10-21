@@ -784,6 +784,12 @@ describe('createProjectSlice', () => {
       })
       expect(result.ok).toBe(true)
       expect(store.getState().project.data.configurations.resource.globalVariables).toHaveLength(2)
+      expect(store.getState().project.data.configurations.resource.globalVariableLists).toBeUndefined()
+    })
+
+    it('sets the GVL list when given', () => {
+      store.getState().projectActions.setGlobalVariables({ variables: [], lists: ['IO', 'Alarms'] })
+      expect(store.getState().project.data.configurations.resource.globalVariableLists).toEqual(['IO', 'Alarms'])
     })
   })
 

@@ -37,13 +37,15 @@
 export interface RetainGlobalLike {
   name: string
   retain?: boolean
+  /** RETAIN PERSISTENT: kept through a clean upload (implies retain). */
+  persistent?: boolean
 }
 
 /** POU snapshot for POU-level `VAR RETAIN` expansion. */
 export interface RetainPouLike {
   name: string
   pouType: string
-  variables: Array<{ name: string; retain?: boolean; type?: { value?: unknown } }>
+  variables: Array<{ name: string; retain?: boolean; persistent?: boolean; type?: { value?: unknown } }>
 }
 
 export interface CollectRetainedGlobalsInput {
@@ -72,6 +74,8 @@ export interface CollectRetainedGlobalsResult {
   retainNamesJson: string
   /** Exact leaf paths declared retained, in declaration order. */
   names: string[]
+  /** The subset of `names` declared PERSISTENT: a clean upload keeps them. */
+  persistent: string[]
   /** Flagged globals that could not be resolved against the map. */
   warnings: string[]
 }
@@ -108,7 +112,11 @@ export function collectRetainedInstanceSuffixes(pous: RetainPouLike[]): string[]
  *  another program CALLS (CODESYS: PLC_PRG calls MAINTENANCE): strucpp publishes such a
  *  program under its bare name, `MAINTENANCE.LUBRICATIONSTARTTIME`, not under a task
  *  instance's `INSTANCE<n>.`. */
-function retainedSuffixOwners(pous: RetainPouLike[]): Map<string, string[]> {
+function retainedSuffixOwners(
+  pous: RetainPouLike[],
+  pick: (variable: RetainPouLike['variables'][number]) => boolean = (variable) =>
+    variable.retain === true || variable.persistent === true,
+): Map<string, string[]> {
   const byName = new Map<string, RetainPouLike>()
   for (const pou of pous) byName.set(pou.name.toUpperCase(), pou)
 
@@ -127,7 +135,7 @@ function retainedSuffixOwners(pous: RetainPouLike[]): Map<string, string[]> {
     const out: string[] = []
     for (const variable of pou?.variables ?? []) {
       const varUpper = variable.name.toUpperCase()
-      if (variable.retain === true) out.push(varUpper)
+      if (pick(variable)) out.push(varUpper)
       const typeValue = variable.type?.value
       if (typeof typeValue !== 'string') continue
       const typeUpper = typeValue.toUpperCase()
@@ -156,8 +164,15 @@ function retainedSuffixOwners(pous: RetainPouLike[]): Map<string, string[]> {
 }
 
 export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): CollectRetainedGlobalsResult {
-  const flagged = input.globalVariables.filter((variable) => variable.retain === true)
+  const flagged = input.globalVariables.filter((variable) => variable.retain === true || variable.persistent === true)
+  const persistentGlobals = new Set(
+    input.globalVariables.filter((variable) => variable.persistent === true).map((v) => v.name.toUpperCase()),
+  )
   const suffixOwners = retainedSuffixOwners(input.pous ?? [])
+  const persistentSuffixes = new Set(
+    retainedSuffixOwners(input.pous ?? [], (variable) => variable.persistent === true).keys(),
+  )
+  const persistent: string[] = []
   const instanceSuffixes = [...suffixOwners.keys()]
   const names: string[] = []
   const warnings: string[] = []
@@ -189,6 +204,7 @@ export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): Coll
           if (seen.has(path)) continue
           seen.add(path)
           names.push(path)
+          if (persistentGlobals.has(upper)) persistent.push(path)
         }
       }
 
@@ -214,6 +230,7 @@ export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): Coll
           if (seen.has(path)) continue
           seen.add(path)
           names.push(path)
+          if (persistentSuffixes.has(suffix)) persistent.push(path)
         }
         if (!matched) {
           warnings.push(
@@ -224,6 +241,6 @@ export function collectRetainedGlobals(input: CollectRetainedGlobalsInput): Coll
     }
   }
 
-  const retainNamesJson = `${JSON.stringify({ version: 1, md5: input.md5, names }, null, 2)}\n`
-  return { retainNamesJson, names, warnings }
+  const retainNamesJson = `${JSON.stringify({ version: 1, md5: input.md5, names, persistent }, null, 2)}\n`
+  return { retainNamesJson, names, persistent, warnings }
 }

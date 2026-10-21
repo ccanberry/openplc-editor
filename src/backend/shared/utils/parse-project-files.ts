@@ -51,6 +51,7 @@ export interface ParsedProjectData {
         tasks: PLCTask[]
         instances: PLCInstance[]
         globalVariables: PLCVariable[]
+        globalVariableLists?: string[]
       }
     }
     servers?: PLCServer[]

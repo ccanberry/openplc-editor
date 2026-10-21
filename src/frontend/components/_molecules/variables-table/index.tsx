@@ -16,6 +16,19 @@ import { SelectableClassCell, SelectableTypeCell } from './selectable-cell'
 
 const columnHelper = createColumnHelper<PLCVariable>()
 
+/**
+ * The Class column's filter. VAR_EXTERNAL rows are never shown: a POU uses the resource's
+ * globals by name (CODESYS), the compiler declares what it needs, and an extern written by
+ * hand stays in the project but has nothing to edit. `value` is the class filter in lower
+ * case, or 'all'. Row ids stay the flat index, so edits and deletes still hit the right row.
+ */
+export const VARIABLES_CLASS_FILTER_ALL = 'all'
+const classFilterFn = (row: { original: PLCVariable }, _columnId: string, value: string): boolean => {
+  const cls = (row.original.class ?? '').toLowerCase()
+  if (cls === 'external') return false
+  return value === VARIABLES_CLASS_FILTER_ALL || cls === value
+}
+
 const columnsPrograms = [
   columnHelper.display({
     id: 'rowNumber',
@@ -38,6 +51,7 @@ const columnsPrograms = [
     header: 'Class',
     enableResizing: true,
     cell: SelectableClassCell,
+    filterFn: classFilterFn,
   }),
   columnHelper.accessor('type', {
     header: 'Type',
@@ -89,6 +103,7 @@ const columns = [
     header: 'Class',
     enableResizing: true,
     cell: SelectableClassCell,
+    filterFn: classFilterFn,
   }),
   columnHelper.accessor('type', {
     header: 'Type',

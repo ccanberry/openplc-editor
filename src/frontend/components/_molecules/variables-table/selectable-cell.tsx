@@ -451,7 +451,8 @@ const SelectableClassCell = ({
     if (language === 'python' || language === 'cpp') {
       return ['input', 'output']
     }
-    return ['input', 'output', 'inOut', 'external', 'local', 'temp']
+    // No 'external': a POU uses the resource's globals by name, without declaring them.
+    return ['input', 'output', 'inOut', 'local', 'temp']
   }
 
   const variableClasses = getVariableClasses()

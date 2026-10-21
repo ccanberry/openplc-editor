@@ -284,6 +284,11 @@ export default class MenuBuilder {
           label: 'Board Package Manager...',
           click: () => this.mainWindow.webContents.send('packages:open-manager'),
         },
+        {
+          label: 'Settings...',
+          accelerator: 'Cmd+,',
+          click: () => this.mainWindow.webContents.send('settings:open-accelerator'),
+        },
       ],
     }
 
@@ -558,6 +563,11 @@ export default class MenuBuilder {
           {
             label: 'Board Package Manager...',
             click: () => this.mainWindow.webContents.send('packages:open-manager'),
+          },
+          {
+            label: 'Settings...',
+            accelerator: 'Ctrl+,',
+            click: () => this.mainWindow.webContents.send('settings:open-accelerator'),
           },
           { type: 'separator' },
           {

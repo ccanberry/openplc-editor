@@ -72,6 +72,10 @@ export interface PLCVariable {
   /** GVL group label (globals only). Absent = group "Global". Storage
    *  stays one flat array — this is a per-variable tag. */
   group?: string
+  /** Retained: survives a power cycle (retain-names.json; a global, or a POU's `VAR RETAIN`). */
+  retain?: boolean
+  /** RETAIN PERSISTENT (CODESYS): survives a clean upload too. Implies `retain`. */
+  persistent?: boolean
 }
 
 export interface PLCTask {
@@ -446,6 +450,8 @@ export interface PLCProjectData {
       tasks: PLCTask[]
       instances: PLCInstance[]
       globalVariables: PLCVariable[]
+      /** GVL order and empty GVLs (see the project schema). */
+      globalVariableLists?: string[]
     }
   }
   servers?: PLCServer[]

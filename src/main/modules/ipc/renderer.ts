@@ -50,6 +50,7 @@ const rendererProcessBridge = {
   // ===================== PROJECT METHODS =====================
   aboutAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('website:about-accelerator', callback),
   aboutModalAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('about:open-accelerator', callback),
+  settingsModalAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('settings:open-accelerator', callback),
   closeProjectAccelerator: (callback: IpcRendererCallbacks) =>
     ipcRenderer.on('workspace:close-project-accelerator', callback),
   closeTabAccelerator: (callback: IpcRendererCallbacks) => ipcRenderer.on('workspace:close-tab-accelerator', callback),
@@ -543,6 +544,12 @@ const rendererProcessBridge = {
     ipcRenderer.invoke('runtime:set-board-password', password),
   runtimeHasBoardPassword: (): Promise<{ success: boolean; set: boolean }> =>
     ipcRenderer.invoke('runtime:has-board-password'),
+  runtimeRememberBoardPassword: (ip: string): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('runtime:remember-board-password', ip),
+  runtimeUseRememberedBoardPassword: (ip: string): Promise<{ success: boolean; found: boolean }> =>
+    ipcRenderer.invoke('runtime:use-remembered-board-password', ip),
+  runtimeForgetBoardPasswords: (): Promise<{ success: boolean; error?: string }> =>
+    ipcRenderer.invoke('runtime:forget-board-passwords'),
   runtimeGetSerialPorts: (
     ipAddress: string,
   ): Promise<{ success: boolean; ports?: Array<{ device: string; description?: string }>; error?: string }> =>

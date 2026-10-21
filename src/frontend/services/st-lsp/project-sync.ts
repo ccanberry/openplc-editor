@@ -25,12 +25,12 @@
  * `refreshStlibs()` on the service.
  */
 
-import type { PLCDataType, PLCPou } from '../../../middleware/shared/ports/types'
+import type { PLCDataType, PLCPou, PLCVariable } from '../../../middleware/shared/ports/types'
 import { openPLCStoreBase } from '../../store'
 import { serializeDataTypesToST } from '../../utils/PLC/data-type-serializer'
 import { serializePouSignatureToSTWithBodyOffset } from '../../utils/PLC/pou-signature-serializer'
 import { deleteBodyLineOffset, setBodyLineOffset } from '../lsp-shared/body-offsets'
-import { DATA_TYPES_URI, pouUri, type StLspService, stubUri } from './types'
+import { DATA_TYPES_URI, GLOBALS_URI, pouUri, type StLspService, stubUri } from './types'
 
 /**
  * Determines whether a POU's source goes through the live-body
@@ -74,6 +74,9 @@ export interface ProjectSyncHandle {
   dispose(): void
 }
 
+/** One empty list, so the store selector stays referentially stable without a resource. */
+const NO_GLOBALS: PLCVariable[] = []
+
 export function attachProjectSync(service: StLspService): ProjectSyncHandle {
   const snapshot = emptySnapshot()
   let disposed = false
@@ -102,6 +105,35 @@ export function attachProjectSync(service: StLspService): ProjectSyncHandle {
     snapshot.contentByUri.set(DATA_TYPES_URI, nextText)
   }
 
+  /** Names and types only: a location may be an alias and an initial value is not needed to
+   *  resolve a name. */
+  function serializeGlobals(globals: PLCVariable[]): string {
+    const lines = globals
+      .filter((v) => v.name && v.type?.value)
+      .map((v) => `  ${v.name} : ${v.type.value};`)
+    return lines.length > 0 ? `VAR_GLOBAL\n${lines.join('\n')}\nEND_VAR\n` : ''
+  }
+
+  function reconcileGlobals(globals: PLCVariable[]): void {
+    if (disposed) return
+    const nextText = serializeGlobals(globals ?? [])
+    const previousText = snapshot.contentByUri.get(GLOBALS_URI)
+    if (nextText.length === 0) {
+      if (previousText !== undefined) {
+        service.closeDocument(GLOBALS_URI)
+        snapshot.contentByUri.delete(GLOBALS_URI)
+      }
+      return
+    }
+    if (previousText === undefined) {
+      service.openDocument(GLOBALS_URI, nextText)
+    } else if (previousText !== nextText) {
+      snapshot.version += 1
+      service.changeDocument(GLOBALS_URI, nextText, snapshot.version)
+    }
+    snapshot.contentByUri.set(GLOBALS_URI, nextText)
+  }
+
   function reconcile(pous: PLCPou[]): void {
     if (disposed) return
 
@@ -110,6 +142,7 @@ export function attachProjectSync(service: StLspService): ProjectSyncHandle {
     // The data-types document survives every POU reconcile — mark its
     // URI as seen so the catch-all cleanup loop below doesn't close it.
     seenUris.add(DATA_TYPES_URI)
+    seenUris.add(GLOBALS_URI)
 
     for (const pou of pous) {
       seenNames.add(pou.name)
@@ -176,16 +209,24 @@ export function attachProjectSync(service: StLspService): ProjectSyncHandle {
     (dataTypes) => reconcileDataTypes(dataTypes),
   )
 
+  // The resource's globals, likewise: a POU uses them by name.
+  const unsubscribeGlobals = openPLCStoreBase.subscribe(
+    (state) => state.project.data.configurations?.resource?.globalVariables ?? NO_GLOBALS,
+    (globals) => reconcileGlobals(globals),
+  )
+
   // Initial reconcile against whatever is already in the store.  The
   // data types load first so any POU that references them resolves
   // on the first didOpen, not on a follow-up didChange.
   reconcileDataTypes(openPLCStoreBase.getState().project.data.dataTypes)
+  reconcileGlobals(openPLCStoreBase.getState().project.data.configurations?.resource?.globalVariables ?? NO_GLOBALS)
   reconcile(openPLCStoreBase.getState().project.data.pous)
 
   return {
     resync() {
       if (disposed) return
       reconcileDataTypes(openPLCStoreBase.getState().project.data.dataTypes)
+      reconcileGlobals(openPLCStoreBase.getState().project.data.configurations?.resource?.globalVariables ?? NO_GLOBALS)
       reconcile(openPLCStoreBase.getState().project.data.pous)
     },
     forceResync() {
@@ -204,6 +245,7 @@ export function attachProjectSync(service: StLspService): ProjectSyncHandle {
       disposed = true
       unsubscribePous()
       unsubscribeDataTypes()
+      unsubscribeGlobals()
       // Close every doc we'd opened so the worker stays consistent
       // if the service is restarted in the same session.
       for (const uri of snapshot.contentByUri.keys()) {

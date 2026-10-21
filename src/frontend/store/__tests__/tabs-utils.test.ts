@@ -158,6 +158,11 @@ describe('tabs/utils', () => {
         expect(result.meta.name).toBe('CustomRes')
       }
     })
+
+    it("keeps a GVL tab's path", () => {
+      const result = CreateResourceEditor('IO (GVL)', '/data/configuration/resource/gvl/IO')
+      expect(result.type === 'plc-resource' && result.meta.path).toBe('/data/configuration/resource/gvl/IO')
+    })
   })
 
   // -------------------------------------------------------------------------

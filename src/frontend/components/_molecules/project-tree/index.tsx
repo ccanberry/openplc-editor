@@ -30,10 +30,12 @@ import { ServerIcon } from '../../../assets/icons/project/Server'
 import { SFCIcon } from '../../../assets/icons/project/SFC'
 import { STIcon } from '../../../assets/icons/project/ST'
 import { StructureIcon } from '../../../assets/icons/project/Structure'
+import { addGvl, deleteGvlAsk, openGvl, renameGvlTo } from '../../../services/global-variable-lists'
 import { executeSaveProject } from '../../../services/save-actions'
 import { useOpenPLCStore } from '../../../store'
 import { WorkspaceProjectTreeLeafType } from '../../../store/slices/workspace/types'
 import { cn } from '../../../utils/cn'
+import { gvlTabPath } from '../../../utils/global-variable-lists'
 import { isUnsaved, unsavedLabel } from '../../../utils/unsaved-label'
 import { toast } from '../../_features/[app]/toast/use-toast'
 
@@ -90,6 +92,7 @@ type ProjectTreeBranchProps = ComponentPropsWithoutRef<'li'> & {
     | 'function'
     | 'function-block'
     | 'program'
+    | 'global-variables'
     | 'resource'
     | 'device'
     | 'server'
@@ -102,6 +105,9 @@ const BranchSources = {
   function: { BranchIcon: FunctionIcon, label: 'Functions' },
   'function-block': { BranchIcon: FunctionBlockIcon, label: 'Function Blocks' },
   program: { BranchIcon: ProgramIcon, label: 'Programs' },
+  // The resource's global variables, in a tab of their own (CODESYS: a GVL object); saved with
+  // the resource, so its unsaved mark is the Resource file's.
+  'global-variables': { BranchIcon: StructureIcon, label: 'Global Variables' },
   resource: { BranchIcon: ResourceIcon, label: 'Resource' },
   device: { BranchIcon: DeviceIcon, label: 'Device' },
   server: { BranchIcon: ServerIcon, label: 'Servers' },
@@ -120,12 +126,13 @@ const ProjectTreeBranch = ({ branchTarget, children, ...res }: ProjectTreeBranch
   const hasAssociatedPou =
     pous.some((pou) => pou.pouType === branchTarget) ||
     branchTarget === 'device' ||
+    branchTarget === 'global-variables' ||
     (branchTarget === 'data-type' && dataTypes.length > 0) ||
     (branchTarget === 'server' && servers !== undefined && servers.length > 0) ||
     (branchTarget === 'remote-device' && remoteDevices !== undefined && remoteDevices.length > 0)
   useEffect(() => setBranchIsOpen(hasAssociatedPou), [hasAssociatedPou])
 
-  const { file: associatedFile } = getFile({ name: label || '' })
+  const { file: associatedFile } = getFile({ name: branchTarget === 'global-variables' ? 'Resource' : label || '' })
   const handleLabel = useCallback((label: string | undefined) => unsavedLabel(label, associatedFile), [associatedFile])
 
   return (
@@ -862,4 +869,148 @@ const ProjectTreeLeaf = ({
   )
 }
 
-export { ProjectTreeBranch, ProjectTreeExpandableLeaf, ProjectTreeLeaf, ProjectTreeNestedBranch, ProjectTreeRoot }
+type IProjectTreeGvlLeafProps = { gvl: string; label?: ReactNode }
+
+/** A GVL in the tree (CODESYS: a global variable list object): opens its tab; Rename, Add GVL
+ *  and Delete in its menu, rename on a double click too. */
+const ProjectTreeGvlLeaf = ({ gvl, label }: IProjectTreeGvlLeafProps) => {
+  const isDebuggerVisible = useOpenPLCStore((s) => s.workspace.isDebuggerVisible)
+  const open = useOpenPLCStore((s) => 'path' in s.editor.meta && s.editor.meta.path === gvlTabPath(gvl))
+  const [isEditing, setIsEditing] = useState(false)
+  const [newLabel, setNewLabel] = useState(gvl)
+  const [isPopoverOpen, setPopoverOpen] = useState(false)
+  const inputNameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (isEditing && inputNameRef.current) {
+      inputNameRef.current.focus()
+      inputNameRef.current.select()
+    }
+  }, [isEditing])
+
+  const finishRename = (value: string) => {
+    setIsEditing(false)
+    const result = renameGvlTo(gvl, value.trim())
+    if (!result.ok) {
+      setNewLabel(gvl)
+      toast({ title: 'Cannot rename the GVL', description: result.message, variant: 'fail' })
+    }
+  }
+
+  const options = [
+    {
+      name: 'Rename',
+      onClick: () => {
+        setNewLabel(gvl)
+        setIsEditing(true)
+      },
+      icon: <PencilIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+    },
+    {
+      name: 'Add GVL',
+      onClick: () => void addGvl(),
+      icon: <DuplicateIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+    },
+    {
+      name: 'Delete',
+      onClick: () => void deleteGvlAsk(gvl),
+      icon: <CloseIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+    },
+  ]
+
+  return (
+    <li
+      className={cn(
+        'group flex cursor-pointer flex-row items-center py-1 pl-[58px] hover:bg-slate-50 dark:hover:bg-neutral-900',
+        open && 'bg-slate-50 dark:bg-neutral-900',
+      )}
+      onClick={() => {
+        if (!open && !isEditing) openGvl(gvl)
+      }}
+    >
+      <StructureIcon className='flex-shrink-0' />
+      {isEditing ? (
+        <input
+          ref={inputNameRef}
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') finishRename(newLabel)
+            if (e.key === 'Escape') setIsEditing(false)
+          }}
+          onBlur={() => finishRename(newLabel)}
+          className='w-full border-0 bg-transparent px-1 text-xs text-neutral-850 focus:outline-none dark:text-neutral-300'
+        />
+      ) : (
+        <span
+          className={cn(
+            'ml-1 w-[90%] overflow-hidden text-ellipsis whitespace-nowrap font-caption text-xs font-normal text-neutral-850 dark:text-neutral-300',
+            open && 'font-medium text-neutral-1000 dark:text-white',
+          )}
+          onDoubleClick={() => {
+            if (isDebuggerVisible) return
+            setNewLabel(gvl)
+            setIsEditing(true)
+          }}
+        >
+          {label ?? gvl}
+        </span>
+      )}
+      <Popover.Root open={isPopoverOpen && !isDebuggerVisible} onOpenChange={setPopoverOpen}>
+        <Popover.Trigger
+          aria-label={`GVL ${gvl} options`}
+          disabled={isDebuggerVisible}
+          className={cn(
+            'mr-2 flex h-5 w-5 items-center justify-center rounded-md opacity-0 hover:bg-neutral-200 group-hover:opacity-100 dark:hover:bg-neutral-850',
+            {
+              'bg-neutral-200 opacity-100 dark:bg-neutral-850': isPopoverOpen,
+              'cursor-not-allowed': isDebuggerVisible,
+            },
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MoreOptionsIcon className='h-4 w-4' />
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            align='start'
+            side='right'
+            sideOffset={2}
+            className={cn(
+              'box z-[100] flex h-fit w-fit min-w-32 flex-col rounded-lg text-xs',
+              'focus:outline-none focus-visible:outline-none',
+              'bg-white text-neutral-1000 dark:bg-neutral-950 dark:text-neutral-300',
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {options.map((option, index) => (
+              <div
+                key={option.name}
+                className={cn(
+                  'flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900',
+                  { 'rounded-t-lg': index === 0, 'rounded-b-lg': index === options.length - 1 },
+                )}
+                onClick={() => {
+                  option.onClick()
+                  setPopoverOpen(false)
+                }}
+              >
+                {option.icon}
+                <p>{option.name}</p>
+              </div>
+            ))}
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+    </li>
+  )
+}
+
+export {
+  ProjectTreeBranch,
+  ProjectTreeExpandableLeaf,
+  ProjectTreeGvlLeaf,
+  ProjectTreeLeaf,
+  ProjectTreeNestedBranch,
+  ProjectTreeRoot,
+}

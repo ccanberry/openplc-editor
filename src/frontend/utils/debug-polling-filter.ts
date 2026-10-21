@@ -16,14 +16,15 @@
  * unless the user switches tabs or FB instance selection.
  */
 
-import type { FbInstanceInfo, PLCPou } from '../../middleware/shared/ports/types'
+import type { FbInstanceInfo, PLCPou, PLCVariable } from '../../middleware/shared/ports/types'
+import { pousWithImplicitExternals } from './implicit-externals'
 
 /**
  * Minimal state shape required by the debug polling filter.
  * Defined locally to avoid coupling the utils layer to the store layer.
  */
 export interface DebugPollingState {
-  project: { data: { pous: PLCPou[] } }
+  project: { data: { pous: PLCPou[]; configurations?: { resource?: { globalVariables?: PLCVariable[] } } } }
   workspace: {
     debugVariableIndexes: Map<string, number>
     debugForcedVariables: Map<string, unknown>
@@ -80,7 +81,11 @@ export function buildActiveIndexSet(
 ): { activeIndexes: number[]; cacheResult: VisibleVarsCache } {
   const activeKeys = new Set<string>()
 
-  const { pous } = state.project.data
+  // Globals a body uses without declaring them count as its externals (implicit-externals.ts).
+  const pous = pousWithImplicitExternals(
+    state.project.data.pous,
+    state.project.data.configurations?.resource?.globalVariables,
+  )
   const {
     debugVariableIndexes,
     debugForcedVariables,

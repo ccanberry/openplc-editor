@@ -1,8 +1,7 @@
 // import * as PrimitiveSwitch from '@radix-ui/react-switch'
-import type { ColumnFiltersState } from '@tanstack/react-table'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { PLCGlobalVariable, PLCVariable } from '../../../../middleware/shared/ports/types'
+import type { PLCGlobalVariable } from '../../../../middleware/shared/ports/types'
 import { CodeIcon } from '../../../assets/icons/interface/CodeIcon'
 import { MinusIcon } from '../../../assets/icons/interface/Minus'
 import { PlusIcon } from '../../../assets/icons/interface/Plus'
@@ -12,34 +11,18 @@ import { useOpenPLCStore } from '../../../store'
 import type { GlobalVariablesTableType } from '../../../store/slices/editor'
 import { cn } from '../../../utils/cn'
 import { parseIecStringToVariables } from '../../../utils/generate-iec-string-to-variables'
-import { generateIecVariablesToString } from '../../../utils/generate-iec-variables-to-string'
+import { groupField, gvlOf, gvlToCode, lastInGvl, mergeGvlCode, neighbourInGvl } from '../../../utils/global-variable-lists'
 import TableActions from '../../_atoms/table-actions'
 import { toast } from '../../_features/[app]/toast/use-toast'
-import { GlobalVariablesTable, groupOfVariable } from '../../_molecules/global-variables-table'
+import { GlobalVariablesTable } from '../../_molecules/global-variables-table'
 import { VariablesCodeEditor } from '../variables-code-editor'
 
-/** Filter value of the "None" chip: no row has this group, so every row is hidden. */
-const NO_GROUP = '\u0000none'
-const GROUP_FILTER_KEY = 'oplc.resource.group-filter'
-
-const loadGroupFilter = (): string[] => {
-  try {
-    const value: unknown = JSON.parse(window.localStorage.getItem(GROUP_FILTER_KEY) ?? '[]')
-    return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-const saveGroupFilter = (groups: string[]) => {
-  try {
-    window.localStorage.setItem(GROUP_FILTER_KEY, JSON.stringify(groups))
-  } catch {
-    // the filter just isn't remembered
-  }
-}
-
-const GlobalVariablesEditor = () => {
+/**
+ * One GVL (CODESYS: a global variable list object): its variables in the table, or its code --
+ * VAR_GLOBAL, VAR_GLOBAL RETAIN and VAR_GLOBAL RETAIN PERSISTENT blocks. The rows keep their
+ * index in the resource's one flat list, so selection, add, remove and move work on it as before.
+ */
+const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
   const ROWS_NOT_SELECTED = -1
   const {
     editor,
@@ -82,7 +65,7 @@ const GlobalVariablesEditor = () => {
    * Table data and column filters states to keep track of the table data and column filters
    */
   const [tableData, setTableData] = useState<PLCGlobalVariable[]>([])
-  const [editorCode, setEditorCode] = useState(() => generateIecVariablesToString(tableData))
+  const [editorCode, setEditorCode] = useState(() => gvlToCode(tableData))
   const [parseError, setParseError] = useState<string | null>(null)
 
   const [editorVariables, setEditorVariables] = useState<GlobalVariablesTableType>({
@@ -91,39 +74,7 @@ const GlobalVariablesEditor = () => {
     description: '',
   })
 
-  /**
-   * GVL group filters. Rows are grouped by their `group` label (default
-   * "Global"); activating one or more groups shows only their rows, through a
-   * column filter, which keeps row ids index-based on the flat data —
-   * selection / add / remove / rearrange semantics stay untouched. With no
-   * group active every row is shown. "None" hides every row (collapses the
-   * list) and is exclusive with the groups; the choice survives tab switches.
-   */
-  const [activeGroups, setActiveGroupsState] = useState<string[]>(loadGroupFilter)
-  const setActiveGroups = (next: string[] | ((current: string[]) => string[])) =>
-    setActiveGroupsState((current) => {
-      const value = typeof next === 'function' ? next(current) : next
-      saveGroupFilter(value)
-      return value
-    })
-  const noneActive = activeGroups.includes(NO_GROUP)
-  const groupSummaries = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const variable of tableData) {
-      const group = groupOfVariable(variable)
-      counts.set(group, (counts.get(group) ?? 0) + 1)
-    }
-    return Array.from(counts, ([name, count]) => ({ name, count }))
-  }, [tableData])
-  const showGroupHeaders = groupSummaries.length > 0
-  const groupColumnFilters: ColumnFiltersState = activeGroups.length > 0 ? [{ id: 'group', value: activeGroups }] : []
-  const toggleGroupFilter = (group: string) => {
-    setActiveGroups((current) => {
-      const groups = current.filter((name) => name !== NO_GROUP)
-      return groups.includes(group) ? groups.filter((name) => name !== group) : [...groups, group]
-    })
-  }
-  const toggleNoneFilter = () => setActiveGroups(noneActive ? [] : [NO_GROUP])
+  const visibleData = useMemo(() => tableData.filter((v) => gvlOf(v) === gvl), [tableData, gvl])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const latestCodeRef = useRef(editorCode)
@@ -143,9 +94,9 @@ const GlobalVariablesEditor = () => {
 
   useEffect(() => {
     if (editorVariables.display !== 'code') {
-      setEditorCode(generateIecVariablesToString(tableData))
+      setEditorCode(gvlToCode(visibleData))
     }
-  }, [tableData, editorVariables.display])
+  }, [visibleData, editorVariables.display])
 
   useEffect(() => {
     latestCodeRef.current = editorCode
@@ -245,17 +196,15 @@ const GlobalVariablesEditor = () => {
   const handleRearrangeVariables = (index: number, row?: number) => {
     if (editorVariables.display === 'code') return
 
+    // Up / down within the GVL: past the rows of other GVLs in the flat list.
+    const rowId = row ?? parseInt(editorVariables.selectedRow)
+    const newIndex = neighbourInGvl(tableData, gvl, rowId, index)
+    if (newIndex === null) return
+
     pushToHistory(editor.meta.name)
 
-    rearrangeVariables({
-      scope: 'global',
-      rowId: row ?? parseInt(editorVariables.selectedRow),
-      newIndex: (row ?? parseInt(editorVariables.selectedRow)) + index,
-    })
-    updateModelVariables({
-      display: 'table',
-      selectedRow: parseInt(editorVariables.selectedRow) + index,
-    })
+    rearrangeVariables({ scope: 'global', rowId, newIndex })
+    updateModelVariables({ display: 'table', selectedRow: newIndex })
     handleFileAndWorkspaceSavedState('Resource')
   }
 
@@ -267,59 +216,37 @@ const GlobalVariablesEditor = () => {
     const variables = globalVariables.filter((variable) => variable.name)
     const selectedRow = parseInt(editorVariables.selectedRow)
 
-    if (variables.length === 0) {
-      createVariable({
-        scope: 'global',
-        data: {
-          name: 'GlobalVar',
-          type: { definition: 'base-type', value: 'DINT' },
-          class: 'global',
-          location: '',
-          documentation: '',
-          debug: false,
-        },
-      })
-      updateModelVariables({
-        display: 'table',
-        selectedRow: 0,
-      })
-      handleFileAndWorkspaceSavedState('Resource')
-
-      return
-    }
-
-    const variable = (
-      selectedRow === ROWS_NOT_SELECTED ? variables[variables.length - 1] : variables[selectedRow]
-    ) as PLCGlobalVariable
-
-    // Single-field location: carry a MANUAL literal address forward (it gets
-    // auto-incremented for a fresh row); an alias binding starts empty so we
-    // don't point two variables at the same address. See variables-editor.
-    const newVarData = {
-      ...variable,
-      location: variable.location.startsWith('%') ? variable.location : '',
-      documentation: '',
-    }
-
-    if (selectedRow === ROWS_NOT_SELECTED) {
-      createVariable({ scope: 'global', data: newVarData })
-      updateModelVariables({
-        display: 'table',
-        selectedRow: variables.length,
-      })
-      handleFileAndWorkspaceSavedState('Resource')
-      return
-    }
-
+    // + adds to this GVL: after the selected row, else after its last row, as a copy of that row;
+    // a fresh row in an empty GVL.
+    const last = lastInGvl(variables, gvl)
+    const after = selectedRow !== ROWS_NOT_SELECTED && gvlOf(variables[selectedRow] ?? {}) === gvl ? selectedRow : last
+    const template =
+      after >= 0
+        ? (variables[after] as PLCGlobalVariable)
+        : ({
+            name: 'GlobalVar',
+            type: { definition: 'base-type', value: 'DINT' },
+            class: 'global',
+            location: '',
+            documentation: '',
+            debug: false,
+          } as PLCGlobalVariable)
+    const { group: _group, ...rest } = template
+    // Single-field location: carry a MANUAL literal address forward (it gets auto-incremented for
+    // a fresh row); an alias binding starts empty so we don't point two variables at the same
+    // address. See variables-editor.
+    const rowToInsert = after >= 0 ? after + 1 : variables.length
     createVariable({
       scope: 'global',
-      data: newVarData,
-      rowToInsert: selectedRow + 1,
+      data: {
+        ...rest,
+        location: rest.location.startsWith('%') ? rest.location : '',
+        documentation: '',
+        ...groupField(gvl),
+      },
+      rowToInsert,
     })
-    updateModelVariables({
-      display: 'table',
-      selectedRow: selectedRow + 1,
-    })
+    updateModelVariables({ display: 'table', selectedRow: rowToInsert })
     handleFileAndWorkspaceSavedState('Resource')
   }
 
@@ -356,24 +283,15 @@ const GlobalVariablesEditor = () => {
     try {
       pushToHistory(editor.meta.name)
 
-      const newVariables = parseIecStringToVariables(editorCode)
-
-      // The IEC code view cannot express the publish/retain flags or
-      // the GVL group label, so a code-view round-trip would silently
-      // wipe them. Preserve all three by merging from the previous
-      // table state on variable NAME (same identity the auto-publish
-      // allocator and the debug-flags persistence use).
-      const previousByName = new Map(globalVariables.filter((v) => v.name).map((v) => [v.name, v]))
-      const mergedVariables = newVariables.map((variable): PLCVariable => {
-        const previous = previousByName.get(variable.name)
-        if (!previous) return variable
-        return {
-          ...variable,
-          ...(previous.publish !== undefined ? { publish: previous.publish } : {}),
-          ...(previous.retain !== undefined ? { retain: previous.retain } : {}),
-          ...(previous.group !== undefined ? { group: previous.group } : {}),
-        }
-      })
+      // The code is this GVL alone: it replaces this GVL's variables (RETAIN / PERSISTENT from
+      // its blocks, publish kept by name) and leaves every other GVL as it is.
+      const merged = mergeGvlCode(
+        globalVariables.filter((v) => v.name),
+        gvl,
+        parseIecStringToVariables(editorCode),
+      )
+      if (!merged.ok) throw new Error(merged.message)
+      const mergedVariables = merged.variables
 
       const response = setGlobalVariables({
         variables: mergedVariables,
@@ -404,7 +322,7 @@ const GlobalVariablesEditor = () => {
     <div ref={containerRef} aria-label='Variables editor container' className='flex  w-full flex-col gap-4'>
       <div aria-label='Variables editor actions' className='relative flex h-8 w-full min-w-[1035px]'>
         <div aria-label='Variables editor table actions container' className='flex h-full w-full justify-between'>
-          <span className='select-none'>Global Variables</span>
+          <span className='select-none'>{gvl}</span>
 
           {editorVariables.display === 'table' && (
             <div
@@ -431,7 +349,7 @@ const GlobalVariablesEditor = () => {
                     onClick: () => handleRearrangeVariables(-1),
                     disabled:
                       parseInt(editorVariables.selectedRow) === ROWS_NOT_SELECTED ||
-                      parseInt(editorVariables.selectedRow) === 0,
+                      neighbourInGvl(tableData, gvl, parseInt(editorVariables.selectedRow), -1) === null,
                     icon: <StickArrowIcon direction='up' className='stroke-[#0464FB]' />,
                     id: 'move-variable-up-button',
                   },
@@ -440,7 +358,7 @@ const GlobalVariablesEditor = () => {
                     onClick: () => handleRearrangeVariables(1),
                     disabled:
                       parseInt(editorVariables.selectedRow) === ROWS_NOT_SELECTED ||
-                      parseInt(editorVariables.selectedRow) === tableData.length - 1,
+                      neighbourInGvl(tableData, gvl, parseInt(editorVariables.selectedRow), 1) === null,
                     icon: <StickArrowIcon direction='down' className='stroke-[#0464FB]' />,
                     id: 'move-variable-down-button',
                   },
@@ -479,63 +397,13 @@ const GlobalVariablesEditor = () => {
           />
         </div>
       </div>
-      {editorVariables.display === 'table' && showGroupHeaders && (
-        <div aria-label='Global variable groups' className='flex flex-wrap items-center gap-2'>
-          <button
-            aria-label='Filter group None'
-            aria-pressed={noneActive}
-            onClick={toggleNoneFilter}
-            title='Hide every global variable (collapse the list)'
-            className={cn(
-              'flex select-none items-center gap-1 rounded-md border px-2 py-0.5 font-caption text-xs transition-colors',
-              noneActive
-                ? 'border-brand bg-brand font-semibold text-white shadow-sm'
-                : 'border-neutral-300 text-neutral-850 hover:border-brand dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-brand',
-            )}
-          >
-            None
-          </button>
-          {groupSummaries.map(({ name, count }) => {
-            const isActive = activeGroups.includes(name)
-            return (
-              <button
-                key={name}
-                aria-label={`Filter group ${name}`}
-                aria-pressed={isActive}
-                onClick={() => toggleGroupFilter(name)}
-                className={cn(
-                  'flex select-none items-center gap-1 rounded-md border px-2 py-0.5 font-caption text-xs transition-colors',
-                  isActive
-                    ? 'border-brand bg-brand font-semibold text-white shadow-sm'
-                    : 'border-neutral-300 text-neutral-850 hover:border-brand dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-brand',
-                )}
-              >
-                <span>{name}</span>
-                <span className={isActive ? 'opacity-90' : 'opacity-60'}>({count})</span>
-              </button>
-            )
-          })}
-          <button
-            aria-label='Remove all filters'
-            disabled={activeGroups.length === 0}
-            onClick={() => setActiveGroups([])}
-            className={cn(
-              'select-none rounded-md border border-neutral-300 px-2 py-0.5 font-caption text-xs text-neutral-850 transition-colors',
-              'hover:border-brand disabled:cursor-default disabled:opacity-40 disabled:hover:border-neutral-300',
-              'dark:border-neutral-800 dark:text-neutral-300 dark:disabled:hover:border-neutral-800',
-            )}
-          >
-            Remove all filters
-          </button>
-        </div>
-      )}
       {editorVariables.display === 'table' && (
         <div aria-label='Variables editor table container' className='' style={{ scrollbarGutter: 'stable' }}>
           <GlobalVariablesTable
             tableData={tableData}
             selectedRow={parseInt(editorVariables.selectedRow)}
             handleRowClick={handleRowClick}
-            columnFilters={groupColumnFilters}
+            gvl={gvl}
           />
         </div>
       )}

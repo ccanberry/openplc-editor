@@ -193,6 +193,10 @@ export function runProgramBuildPipeline(opts: ProgramBuildPipelineOptions): Prog
     pouIncludes,
     ...(additionalSources ? { additionalSources } : {}),
     ...(debugCheckpoints ? { debugCheckpoints: true } : {}),
+    // ONE HEADER PER POU and stable per-POU checkpoint ids (strucpp's incremental layout): an
+    // edit changes only the translation units it touches, so the runtime's ccache recompiles
+    // those and reuses every other object. A shared generated.hpp made every edit a full build.
+    incremental: true,
   })
 
   // Source map covers every file we fed strucpp, so formatDiagnostic
@@ -264,6 +268,10 @@ export function runProgramBuildPipeline(opts: ProgramBuildPipelineOptions): Prog
     files.push({ name: 'generated.cpp', content: result.cppCode })
   }
   files.push({ name: 'generated.hpp', content: result.headerCode })
+  // The incremental layout's per-POU headers (generated.hpp then only includes them).
+  for (const h of result.headerFiles ?? []) {
+    files.push({ name: h.name, content: h.content })
+  }
 
   // Phase 4 debugger artifacts (present starting with strucpp v0.3.0).
   // debugTableCpp is the per-project pointer table for generated_debug.cpp.
