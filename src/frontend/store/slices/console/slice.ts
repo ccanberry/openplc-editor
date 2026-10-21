@@ -27,6 +27,15 @@ const createConsoleSlice: StateCreator<ConsoleSlice, [], [], ConsoleSlice> = (se
         }),
       )
     },
+    addLogs: (logs) => {
+      if (logs.length === 0) return
+      setState(
+        produce((state: ConsoleSlice) => {
+          const now = new Date()
+          for (const log of logs) state.logs.push({ ...log, tstamp: log.tstamp ?? now })
+        }),
+      )
+    },
     removeLog: (id) => {
       setState(
         produce((state: ConsoleSlice) => {

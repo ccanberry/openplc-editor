@@ -12,6 +12,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.1',
+    date: '2026-10-21',
+    changes: [
+      'Build and upload no longer waits for the console: the console added the build output one line at a time and drew all its lines again for each, about 0.1 s a line, so a hundred lines of compiler output made a sub-second compile look like 15 s. The lines now come in bursts and only new lines are drawn.',
+      'Only the generated files that changed are compiled: a change to one initial value compiles the file that holds it, not a hundred files again from the compiler cache, and the log lists only what was compiled. A clean build still compiles everything.',
+      "The Suite brings its runtime to this release's when it starts (1.11.0 shipped the previous runtime's sources).",
+    ],
+  },
+  {
     version: '1.11.0',
     date: '2026-10-21',
     changes: [

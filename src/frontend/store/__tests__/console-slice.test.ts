@@ -57,6 +57,16 @@ describe('createConsoleSlice', () => {
     expect(logs[0].level).toBe('info')
   })
 
+  it('addLogs appends several entries in one update, keeping a given tstamp', () => {
+    const t = new Date(0)
+    store.getState().consoleActions.addLogs([makeLog({ id: 'a' }), makeLog({ id: 'b', tstamp: t })])
+    store.getState().consoleActions.addLogs([])
+    const { logs } = store.getState()
+    expect(logs.map((l) => l.id)).toEqual(['a', 'b'])
+    expect(logs[0].tstamp).toBeInstanceOf(Date)
+    expect(logs[1].tstamp).toBe(t)
+  })
+
   it('addLog assigns a Date when tstamp is not provided', () => {
     const before = new Date()
     store.getState().consoleActions.addLog(makeLog({ tstamp: undefined }))

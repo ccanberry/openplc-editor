@@ -31,6 +31,7 @@ import { decideAttach, parseCheckpointFingerprint, resolveDebugBuild } from '../
 import { logCompilerEvent } from '../../../utils/debugger-session'
 import { isOpenPLCRuntimeTarget } from '../../../utils/device'
 import { getErrorMessage } from '../../../utils/get-error-message'
+import { createLogBatcher } from '../../../utils/log-batcher'
 import { type BuildOption, BuildOptionsPopover } from '../../_features/[workspace]/build-options'
 import { ChatButton } from '../../_molecules/workspace-activity-bar/default/chat'
 import { DebuggerButton } from '../../_molecules/workspace-activity-bar/default/debugger'
@@ -108,7 +109,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     project: { data: projectData, meta: projectMeta },
     deviceDefinitions,
     deviceAvailableOptions: { availableBoards },
-    consoleActions: { addLog, requestConsoleFollow },
+    consoleActions: { addLog, addLogs, requestConsoleFollow },
   } = useOpenPLCStore()
 
   // Project-type capability matrix.  Drives which set of action
@@ -271,6 +272,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       // Every build line carries the time since the build started, so a slow step shows itself.
       const buildStart = performance.now()
       const elapsed = () => `[${((performance.now() - buildStart) / 1000).toFixed(1)} s]`
+      // The build's lines arrive one IPC message each: added in bursts, not one render per line.
+      const buildLog = createLogBatcher(addLogs)
       let onlineRefusal: string | null = null
 
       // Reveal the console and re-attach it to the tail so build output is
@@ -440,9 +443,13 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               streamedError = true
             }
             if (event.message && /online change refused/i.test(event.message)) onlineRefusal = event.message
-            logCompilerEvent(event.message ? { ...event, message: `${elapsed()} ${event.message}` } : event, addLog)
+            logCompilerEvent(
+              event.message ? { ...event, message: `${elapsed()} ${event.message}` } : event,
+              buildLog.add,
+            )
             if (event.firmwarePath && isSimulatorBoard) {
               void simulator.loadFirmware(event.firmwarePath).then((loadResult) => {
+                buildLog.flush()
                 if (loadResult.success) {
                   setSimulatorRunning(true)
                   addLog({ id: crypto.randomUUID(), level: 'info', message: 'Simulator is running.' })
@@ -469,11 +476,13 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           },
         )
 
+        buildLog.flush()
         if (!result.success && !streamedError) {
           addLog({ id: crypto.randomUUID(), level: 'error', message: result.error ?? 'Compilation failed' })
         }
         buildOk = result.success
       } catch (err: unknown) {
+        buildLog.flush()
         addLog({ id: crypto.randomUUID(), level: 'error', message: `Build error: ${getErrorMessage(err)}` })
       } finally {
         setIsCompiling(false)
@@ -627,7 +636,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         setIsCompiling(false)
       }
     },
-    [compiler, projectData, projectMeta, addLog, isCompiling, executeSave, requestConsoleFollow],
+    [compiler, projectData, projectMeta, addLog, addLogs, isCompiling, executeSave, requestConsoleFollow],
   )
 
   // ---------------------------------------------------------------------------
@@ -848,6 +857,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           const runtimeJwtToken = useOpenPLCStore.getState().runtimeConnection.jwtToken || null
           // See the handleBuild call above — compile-time alias resolution.
           const freshProjectData = useOpenPLCStore.getState().projectActions.getCompileReadyProjectData()
+          const uploadLog = createLogBatcher(consoleActions.addLogs)
           const compileResult = await compiler.compileProgram(
             {
               projectData: freshProjectData,
@@ -860,8 +870,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
               runtimeIpAddress,
               runtimeJwtToken,
             },
-            (event) => logCompilerEvent(event, consoleActions.addLog),
+            (event) => logCompilerEvent(event, uploadLog.add),
           )
+          uploadLog.flush()
           if (compileResult.success) {
             loginBreakpointsRef.current = isRuntimeTarget
             consoleActions.addLog({
@@ -1243,10 +1254,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         // understands `%…` literals, not alias names.
         const freshProjectData = useOpenPLCStore.getState().projectActions.getCompileReadyProjectData()
         consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Starting debug compilation...' })
+        const debugLog = createLogBatcher(consoleActions.addLogs)
         const debugCompileResult = await compiler.compileForDebug(
           { projectData: freshProjectData, boardTarget, projectPath },
-          (event) => logCompilerEvent(event, consoleActions.addLog),
+          (event) => logCompilerEvent(event, debugLog.add),
         )
+        debugLog.flush()
         if (!debugCompileResult.success) {
           consoleActions.addLog({
             id: crypto.randomUUID(),

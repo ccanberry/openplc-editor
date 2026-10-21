@@ -23,6 +23,8 @@ export type ConsoleState = {
 
 export type ConsoleActions = {
   addLog: (log: LogObject) => void
+  /** Several lines in one update (a burst of build output renders once, not once per line). */
+  addLogs: (logs: LogObject[]) => void
   removeLog: (id: string) => void
   clearLogs: () => void
   setLevelFilter: (level: LogLevel, enabled: boolean) => void

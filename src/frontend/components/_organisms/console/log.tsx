@@ -1,6 +1,6 @@
 import type { StructuredCompileError } from '@root/middleware/shared/ports/types'
 import { Copy } from 'lucide-react'
-import { ComponentPropsWithoutRef, useCallback, useEffect, useRef, useState } from 'react'
+import { ComponentPropsWithoutRef, memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { cn } from '../../../utils/cn'
 
@@ -200,4 +200,7 @@ const LogComponent = ({
   )
 }
 
-export { LogComponent }
+// Memoized: a new console line renders only itself, not every line before it.
+const MemoLogComponent = memo(LogComponent)
+
+export { MemoLogComponent as LogComponent }
