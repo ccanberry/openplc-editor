@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.4',
+    date: '2026-10-24',
+    changes: [
+      'The robocnc_link library has RCNC_CATALOG (core 2.4.0): the programs robocnc holds and the init versions of one of them, for a PLC program to hand to its operator panel. Choosing the version a start takes is a write of its index to 2351 before the start.',
+    ],
+  },
+  {
     version: '1.11.3',
     date: '2026-10-24',
     changes: [
