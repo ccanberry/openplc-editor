@@ -84,7 +84,8 @@ const SettingsModal = () => {
 
   return (
     <Modal open={open} onOpenChange={setOpen}>
-      <ModalContent className='flex w-[500px] select-none flex-col gap-5 rounded-lg p-6'>
+      {/* Fits any window: never taller or wider than the screen, the settings scroll inside. */}
+      <ModalContent className='flex h-fit max-h-[90vh] w-[500px] max-w-[95vw] select-none flex-col gap-5 overflow-y-auto rounded-lg p-6'>
         <ModalTitle className='text-xl font-semibold'>Settings</ModalTitle>
 
         <Section title='Online'>

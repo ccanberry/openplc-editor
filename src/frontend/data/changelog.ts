@@ -12,6 +12,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.3',
+    date: '2026-10-24',
+    changes: [
+      'Logged in, the build button does the online change at once: a click asks OK / Cancel / Go offline, without a menu first.',
+      'A wrong board password is said at once: Connect, Login and every upload check it with the board first. The board refusing it stops there with a message (and the password is forgotten, so the next attempt asks for it), instead of compiling and then failing at the deploy step again and again. In dev mode the password is kept encrypted for this Windows user, as before.',
+      'Logged in, the Value column of a GVL shows an array or a function block instance as a tree: closed at first, opened with its arrow to its elements or members, each with its live value (nested for arrays of function blocks). What is opened stays open while you look at other tabs.',
+      'Typing in a variables code view (a GVL or a POU) lights the build button while logged in, before the code is applied to the project.',
+      'File > Settings fits any screen: the dialog scrolls when the window is small.',
+      'The Suite launcher: a second start says the Suite is already running (and brings the Editor to the front) instead of stacking launchers; every WSL step has a time limit, and when WSL does not answer a dialog offers to reset it; however the Editor ends, the runtime the Suite started is stopped, and a runtime left over by an earlier crash is taken over and stopped too.',
+    ],
+  },
+  {
     version: '1.11.2',
     date: '2026-10-21',
     changes: [

@@ -29,8 +29,9 @@ type BuildOptionsPopoverProps = {
   libraryMode?: boolean
   /** Lit: the project has changed since the login, so the PLC runs an older program. */
   attention?: boolean
-  /** Logged in (CODESYS online): the menu has one purpose, the online change. Build only,
-   *  download and clean download come back after a logout. The icon turns 90 degrees ccw. */
+  /** Logged in (CODESYS online): the button has one purpose, the online change, and a click
+   *  asks for it at once (no menu). Build only, download and clean download come back after a
+   *  logout. The icon turns 90 degrees ccw. */
   loggedIn?: boolean
   onSelect: (option: BuildOption) => void
 }
@@ -104,8 +105,19 @@ export const BuildOptionsPopover = ({
 
   const isNineties = useIsNinetiesTheme()
 
+  // ONLINE, ONE CLICK. The menu would hold a single row, so the click is that row: it goes
+  // straight to the online change (which asks OK / Cancel / Go offline itself). The menu opens
+  // only to say why the online change is unavailable.
+  const onOpenChange = (next: boolean) => {
+    if (next && loggedIn && !libraryMode && uploadAvailable) {
+      onSelect('online-change')
+      return
+    }
+    setOpen(next)
+  }
+
   return (
-    <Popover.Root open={open && !disabled} onOpenChange={setOpen}>
+    <Popover.Root open={open && !disabled} onOpenChange={onOpenChange}>
       <TooltipProvider delayDuration={250}>
         <Tooltip>
           <TooltipTrigger asChild>

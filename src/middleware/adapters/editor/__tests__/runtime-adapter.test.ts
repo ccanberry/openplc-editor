@@ -548,3 +548,13 @@ describe('isReadyForDebug', () => {
     expect(adapter.isReadyForDebug!()).toBe(false)
   })
 })
+
+describe('checkBoardPassword', () => {
+  it('asks the main process whether the board takes the password', async () => {
+    const bridge = window.bridge as unknown as Record<string, jest.Mock>
+    bridge.runtimeCheckBoardPassword = jest.fn().mockResolvedValue({ success: false, error: 'refused' })
+    const result = await adapter.checkBoardPassword!('192.168.0.10')
+    expect(bridge.runtimeCheckBoardPassword).toHaveBeenCalledWith('192.168.0.10')
+    expect(result).toEqual({ success: false, error: 'refused' })
+  })
+})

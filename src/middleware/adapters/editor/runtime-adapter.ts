@@ -157,6 +157,10 @@ export function createEditorRuntimeAdapter(getIpAddress: () => string): RuntimeP
       return !!r?.set
     },
 
+    async checkBoardPassword(ip: string) {
+      return window.bridge.runtimeCheckBoardPassword(ip)
+    },
+
     async rememberBoardPassword(ip: string) {
       return window.bridge.runtimeRememberBoardPassword(ip)
     },

@@ -169,6 +169,10 @@ export interface RuntimePort {
   /** Whether a board password is set for this connection. */
   hasBoardPassword(): Promise<boolean>
 
+  /** Does the board at `ip` take this connection's password? `unchecked`: the runtime cannot
+   *  check it (an older appliance). Needs the runtime login. */
+  checkBoardPassword?(ip: string): Promise<{ success: boolean; unchecked?: boolean; error?: string }>
+
   /** DEV MODE (File > Settings): keep this connection's board password, encrypted for the OS
    *  user, for the board at `ip`. Never readable by the renderer. */
   rememberBoardPassword?(ip: string): Promise<{ success: boolean; error?: string }>

@@ -20,9 +20,10 @@ import { StopIcon } from '../../../assets/icons/interface/Stop'
 import { useDebugPolling } from '../../../hooks/useDebugPolling'
 import { useDebugSession } from '../../../hooks/useDebugSession'
 import { useRunControlSync } from '../../../hooks/useRunControl'
+import { useCodeViewPending } from '../../../services/code-view-edits'
 import { isClearConsoleOnBuild, isConfirmOnlineChange, isDevMode } from '../../../services/editor-settings'
 import { releaseForces } from '../../../services/forcing'
-import { connectToRuntime, needsBoardPassword } from '../../../services/runtime-connect'
+import { checkBoardPassword, connectToRuntime, needsBoardPassword } from '../../../services/runtime-connect'
 import { executeSaveProject } from '../../../services/save-actions'
 import { useOpenPLCStore } from '../../../store'
 import type { RuntimeConnection } from '../../../store/slices/device/types'
@@ -140,6 +141,8 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   // CHANGED SINCE LOGIN: any edit made while logged in means the PLC runs an older program than
   // the one on screen, so Build/Upload is lit until it is uploaded (or the session ends).
   const [changedSinceLogin, setChangedSinceLogin] = useState(false)
+  // A variables code view holding typed text the project does not have yet counts too.
+  const codeViewPending = useCodeViewPending()
   const loginDataRef = useRef<unknown>(null)
   // The Login handler, for the re-login after an online change (defined further down).
   const reloginRef = useRef<(() => Promise<void>) | null>(null)
@@ -287,6 +290,15 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         })
       }
       const wasLoggedIn = useOpenPLCStore.getState().workspace.isDebuggerVisible
+      // A WRONG BOARD PASSWORD IS SAID NOW, before anything compiles -- not at the deploy step at
+      // the end, after which every further upload failed the same way.
+      if (
+        !overrides?.compileOnly &&
+        useOpenPLCStore.getState().runtimeConnection.connectionStatus === 'connected' &&
+        !(await checkBoardPassword(runtime)).ok
+      ) {
+        return false
+      }
       // Every build line carries the time since the build started, so a slow step shows itself.
       const buildStart = performance.now()
       const elapsed = () => `[${((performance.now() - buildStart) / 1000).toFixed(1)} s]`
@@ -1192,6 +1204,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
           setIsDebuggerProcessing(false)
           return
         }
+      } else if (isOpenPLCRuntimeTarget(boardInfo) && !(await checkBoardPassword(runtime)).ok) {
+        // Connected already: Login still finds out at once whether the board takes the password.
+        setIsDebuggerProcessing(false)
+        return
       }
 
       const debugConfig = await resolveDebugConfigWithUx(boardTarget, boardInfo?.debug)
@@ -1349,7 +1365,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         <>
           <BuildOptionsPopover
             disabled={isCompiling || isSimulatorBoard}
-            attention={changedSinceLogin}
+            attention={changedSinceLogin || (isDebuggerVisible && codeViewPending)}
             loggedIn={isDebuggerVisible && !isSimulatorBoard}
             triggerTooltip={
               isSimulatorBoard
@@ -1357,7 +1373,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
                 : isCompiling
                   ? 'Compiling…'
                   : isDebuggerVisible
-                    ? changedSinceLogin
+                    ? changedSinceLogin || codeViewPending
                       ? 'Changed since login: online change to put it on the PLC'
                       : 'Online change'
                     : 'Build options'

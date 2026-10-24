@@ -7,6 +7,7 @@ import { MinusIcon } from '../../../assets/icons/interface/Minus'
 import { PlusIcon } from '../../../assets/icons/interface/Plus'
 import { StickArrowIcon } from '../../../assets/icons/interface/StickArrow'
 import { TableIcon } from '../../../assets/icons/interface/TableIcon'
+import { setCodeViewPending } from '../../../services/code-view-edits'
 import { useOpenPLCStore } from '../../../store'
 import type { GlobalVariablesTableType } from '../../../store/slices/editor'
 import { cn } from '../../../utils/cn'
@@ -108,6 +109,18 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
     lastParsedCodeRef.current = editorCode
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor.meta.name])
+
+  // Typed but not parsed yet: the project does not have it, so say so (lights Build when online).
+  const pendingKey = `gvl:${gvl}`
+  useEffect(() => {
+    setCodeViewPending(
+      pendingKey,
+      editorVariables.display === 'code' &&
+        editorCode !== lastParsedCodeRef.current &&
+        editorCode !== gvlToCode(visibleData),
+    )
+  }, [pendingKey, editorVariables.display, editorCode, visibleData])
+  useEffect(() => () => setCodeViewPending(pendingKey, false), [pendingKey])
 
   useEffect(() => {
     if (editorVariables.display === 'code') {

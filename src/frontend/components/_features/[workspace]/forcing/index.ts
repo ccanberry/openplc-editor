@@ -1,5 +1,6 @@
 export { ForceCommands, useForceShortcuts } from './force-commands'
 export { ForceListsPanel } from './force-lists-panel'
 export { ForcesPanel } from './forces-panel'
+export { LiveTreeCell } from './live-tree-cell'
 export { LiveValueCell } from './live-value-cell'
 export { PrepareValueDialog } from './prepare-dialog'

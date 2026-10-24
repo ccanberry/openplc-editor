@@ -544,6 +544,8 @@ const rendererProcessBridge = {
     ipcRenderer.invoke('runtime:set-board-password', password),
   runtimeHasBoardPassword: (): Promise<{ success: boolean; set: boolean }> =>
     ipcRenderer.invoke('runtime:has-board-password'),
+  runtimeCheckBoardPassword: (ip: string): Promise<{ success: boolean; unchecked?: boolean; error?: string }> =>
+    ipcRenderer.invoke('runtime:check-board-password', ip),
   runtimeRememberBoardPassword: (ip: string): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke('runtime:remember-board-password', ip),
   runtimeUseRememberedBoardPassword: (ip: string): Promise<{ success: boolean; found: boolean }> =>

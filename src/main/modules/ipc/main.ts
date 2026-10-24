@@ -724,6 +724,32 @@ class MainProcessBridge implements MainIpcModule {
 
   handleRuntimeHasBoardPassword = (_event: IpcMainInvokeEvent) => ({ success: true, set: this.boardPassword !== null })
 
+  /**
+   * Does the board take this connection's password? The runtime logs in to it once
+   * (POST /api/check-board-password). Asked at Connect, Login and before an upload, so a wrong
+   * password is said at once, not in the upload's deploy step. A runtime without the check
+   * (older appliance) answers "Unknown argument": then nothing could be checked.
+   */
+  handleRuntimeCheckBoardPassword = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    if (!this.boardPassword) return { success: false, error: 'no board password set' }
+    try {
+      const result = await this.makeRuntimeApiPostRequest<{ status?: string; PostRequestError?: string }>(
+        ipAddress,
+        '/api/check-board-password',
+        JSON.stringify({ board_password: this.boardPassword }),
+        (data: string) => JSON.parse(data) as { status?: string; PostRequestError?: string },
+        30_000,
+      )
+      if (!result.success) return { success: false, error: result.error }
+      if (result.data?.PostRequestError) return { success: true, unchecked: true }
+      const status = (result.data?.status ?? '').trim()
+      if (status.startsWith('CHECK:OK')) return { success: true }
+      return { success: false, error: status.replace(/^CHECK:FAILED\s*/, '') || 'no reply from the board' }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
   // ===================== DEV MODE: REMEMBERED BOARD PASSWORDS =====================
   // Only while the user has switched dev mode on (File > Settings). The password is encrypted
   // with the OS user's key (Electron safeStorage: DPAPI on Windows) in this user's app data, keyed
@@ -1074,6 +1100,7 @@ class MainProcessBridge implements MainIpcModule {
     this.registerHandle('runtime:clear-credentials', this.handleRuntimeClearCredentials)
     this.registerHandle('runtime:set-board-password', this.handleRuntimeSetBoardPassword)
     this.registerHandle('runtime:has-board-password', this.handleRuntimeHasBoardPassword)
+    this.registerHandle('runtime:check-board-password', this.handleRuntimeCheckBoardPassword)
     this.registerHandle('runtime:remember-board-password', this.handleRuntimeRememberBoardPassword)
     this.registerHandle('runtime:use-remembered-board-password', this.handleRuntimeUseRememberedBoardPassword)
     this.registerHandle('runtime:forget-board-passwords', this.handleRuntimeForgetBoardPasswords)

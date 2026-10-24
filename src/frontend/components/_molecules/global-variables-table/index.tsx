@@ -6,7 +6,7 @@ import { usePouSnapshot } from '../../../hooks/use-pou-snapshot'
 import { useOpenPLCStore } from '../../../store'
 import { gvlOf } from '../../../utils/global-variable-lists'
 import { GenericTable } from '../../_atoms/generic-table'
-import { LiveValueCell } from '../../_features/[workspace]/forcing/live-value-cell'
+import { LiveTreeCell } from '../../_features/[workspace]/forcing/live-tree-cell'
 import {
   EditableDocumentationCell,
   EditableGroupCell,
@@ -107,7 +107,7 @@ const columns = [
 ]
 
 /** While logged in: the live value; a click prepares it (F7 forces, Ctrl+F7 writes). A global's
- *  debug-map path is its name in upper case. */
+ *  debug-map path is its name in upper case. An array or FB instance opens as a tree. */
 const liveColumn = columnHelper.display({
   id: 'liveValue',
   header: 'Value',
@@ -115,7 +115,7 @@ const liveColumn = columnHelper.display({
   minSize: 96,
   maxSize: 300,
   enableResizing: true,
-  cell: (props) => <LiveValueCell variableKey={props.row.original.name.toUpperCase()} />,
+  cell: (props) => <LiveTreeCell variableKey={props.row.original.name.toUpperCase()} />,
 })
 
 type PLCVariablesTableProps = {

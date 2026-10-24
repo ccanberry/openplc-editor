@@ -112,6 +112,34 @@ export async function connectToRuntime(runtime: RuntimePort, req: { boardPasswor
   }
   if (!connected) return { ok: false, reason: 'not logged in to the runtime' }
 
+  // The board must take the password now, not at the first upload's deploy step.
+  const checked = await checkBoardPassword(runtime)
+  if (!checked.ok) {
+    deviceActions.setRuntimeConnectionStatus('error')
+    return checked
+  }
+
   if (req.boardPassword && isDevMode()) void runtime.rememberBoardPassword?.(ip)
   return { ok: true }
+}
+
+/**
+ * Does the board take the password this connection holds? Asked at Connect, at Login and before
+ * an upload or online change: a wrong password is said at once (and forgotten, so the next attempt
+ * asks for it), instead of an upload compiling and then failing -- again and again -- at its
+ * deploy step. Boards without a password, and an appliance that cannot check, pass.
+ */
+export async function checkBoardPassword(runtime: RuntimePort): Promise<ConnectResult> {
+  const { runtimeIpAddress: ip, deviceBoard } = openPLCStoreBase.getState().deviceDefinitions.configuration
+  if (!ip || !needsBoardPassword(deviceBoard) || !runtime.checkBoardPassword) return { ok: true }
+  const r = await runtime.checkBoardPassword(ip)
+  // Only a refusal stops here. A board that does not answer is said where it matters, by the
+  // step that needs it (the upload's deploy, the Start), as before.
+  if (r.success || !/refused/i.test(r.error ?? '')) return { ok: true }
+  await runtime.setBoardPassword('')
+  if (isDevMode()) void runtime.forgetBoardPasswords?.()
+  const reason =
+    "the board refused the board password: enter the board's root password again (board settings, under IP Address)"
+  await ask('Board password', 'The board refused the board password. Enter the board\'s root password again in the board settings (under IP Address) and connect again.', ['OK'], 'error')
+  return { ok: false, reason }
 }

@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
+import { leavesByPath } from '../services/forcing'
 import { useOpenPLCStore } from '../store'
 import { preparedLabel } from '../utils/forcing'
 
@@ -115,7 +116,11 @@ export function useForceMark(key: string | undefined): ForceMark {
     useShallow((s) => {
       if (!key || !s.workspace.isDebuggerVisible) return { prepared: '', forced: false }
       const ws = s.workspace
-      const index = ws.debugVariableIndexes.get(key) ?? ws.debugVariableIndexes.get(key.toUpperCase())
+      // a variable's key, else a map path (an array element or FB member in a live tree)
+      const index =
+        ws.debugVariableIndexes.get(key) ??
+        ws.debugVariableIndexes.get(key.toUpperCase()) ??
+        leavesByPath().get(key.toUpperCase())?.index
       const path = index !== undefined ? ws.debugLeaves.get(index)?.path : undefined
       const prepared = path ? preparedLabel(ws.debugPrepared.get(path)) : ''
       const forced = path && ws.debugPlcForces ? ws.debugPlcForces.has(path) : ws.debugForcedVariables.has(key)

@@ -7,6 +7,7 @@ import { MinusIcon } from '../../../assets/icons/interface/Minus'
 import { PlusIcon } from '../../../assets/icons/interface/Plus'
 import { StickArrowIcon } from '../../../assets/icons/interface/StickArrow'
 import { TableIcon } from '../../../assets/icons/interface/TableIcon'
+import { setCodeViewPending } from '../../../services/code-view-edits'
 import { useOpenPLCStore } from '../../../store'
 import type { VariablesTable as VariablesTableType } from '../../../store/slices/editor'
 import { selectEditorForPou } from '../../../store/slices/editor/utils'
@@ -266,6 +267,18 @@ const VariablesEditor = ({ name: propName, isActive: _isActive = true }: Variabl
     lastParsedCodeRef.current = editorCode
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor.meta.name])
+
+  // Typed but not parsed yet: the project does not have it, so say so (lights Build when online).
+  const pendingKey = `pou:${editor.meta.name}`
+  useEffect(() => {
+    setCodeViewPending(
+      pendingKey,
+      editorVariables.display === 'code' &&
+        editorCode !== lastParsedCodeRef.current &&
+        editorCode !== generateIecVariablesToString(withoutExternals(tableData)),
+    )
+  }, [pendingKey, editorVariables.display, editorCode, tableData])
+  useEffect(() => () => setCodeViewPending(pendingKey, false), [pendingKey])
 
   useEffect(() => {
     if (editorVariables.display === 'code') {
