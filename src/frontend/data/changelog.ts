@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.11.5',
+    date: '2026-10-24',
+    changes: [
+      'A program using RCNC_CATALOG builds again: 1.11.4\'s library kept a value in the block\'s own VAR section, which a C block cannot reach, and the ARM9 build stopped with "QUERY_SENT was not declared in this scope". QUERY_SENT is now an output of the block (the program last asked about).',
+    ],
+  },
+  {
     version: '1.11.4',
     date: '2026-10-24',
     changes: [

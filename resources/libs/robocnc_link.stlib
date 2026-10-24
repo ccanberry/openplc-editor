@@ -573,7 +573,7 @@
     },
     {
      "name": "QUERY_SENT",
-     "class": "local",
+     "class": "output",
      "type": {
       "definition": "base-type",
       "value": "INT"
@@ -584,7 +584,7 @@
      "debug": false
     }
    ],
-   "documentation": "RCNC_CATALOG - the programs robocnc holds and the init versions of one of them (robocnc 1.4.0).\n   robocnc owns the program folder and publishes it in registers (NC_Catalog.cpp); this block\n   reads them for the PLC, which passes them to the operator panel:\n     PROGS[0..COUNT-1]  the programs 8000..8999 in the folder, ascending (CATALOG 1400..1501)\n     SEQ                +1 whenever that list changes\n     QUERY_PROG         the program whose versions are wanted (written to 2350 when it changes)\n     VERSION_PROG       the program the version list is for (0: not in the folder / not yet)\n     VERSION_COUNT      its versions; version 0 is the default <n>.init\n     VERSION_WORDS      VERSION_COUNT names, 6 words each (2 characters a word, high byte first,\n                        zero-padded): name i = VERSION_WORDS[6*i .. 6*i+5]\n     VERSION_ACTIVE     the version the last program start took\n   Three reads (and a write when QUERY_PROG changes): call it in a slow group, not every scan.\n   Choosing the version to run is a plain write of its index to PROGRAM_VERSION_REQ (2351)\n   before the start, e.g. WRITE_PARAM_INT(ADDR := 2351, VALUE := idx).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+   "documentation": "RCNC_CATALOG - the programs robocnc holds and the init versions of one of them (robocnc 1.4.0).\n   robocnc owns the program folder and publishes it in registers (NC_Catalog.cpp); this block\n   reads them for the PLC, which passes them to the operator panel:\n     PROGS[0..COUNT-1]  the programs 8000..8999 in the folder, ascending (CATALOG 1400..1501)\n     SEQ                +1 whenever that list changes\n     QUERY_PROG         the program whose versions are wanted (written to 2350 when it changes)\n     VERSION_PROG       the program the version list is for (0: not in the folder / not yet)\n     VERSION_COUNT      its versions; version 0 is the default <n>.init\n     VERSION_WORDS      VERSION_COUNT names, 6 words each (2 characters a word, high byte first,\n                        zero-padded): name i = VERSION_WORDS[6*i .. 6*i+5]\n     VERSION_ACTIVE     the version the last program start took\n     QUERY_SENT         the program last written to 2350 (an output only because a C block's\n                        own VAR section is not passed to its C code: the block keeps it here)\n   Three reads (and a write when QUERY_PROG changes): call it in a slow group, not every scan.\n   Choosing the version to run is a plain write of its index to PROGRAM_VERSION_REQ (2351)\n   before the start, e.g. WRITE_PARAM_INT(ADDR := 2351, VALUE := idx).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
   },
   {
    "name": "RCNC_CONNECT",
