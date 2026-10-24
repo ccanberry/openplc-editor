@@ -438,6 +438,155 @@
    "documentation": "RoboCNC axis status (param 900+ID).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
   },
   {
+   "name": "RCNC_CATALOG",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    uint16_t regs[125];\n    int ok = 1;\n\n    /* the program asked about, written only when it changes */\n    if ((int)QUERY_PROG != (int)QUERY_SENT) {\n        if (robocnc_write_param_int(2350, (int)QUERY_PROG) != -1)\n            QUERY_SENT = QUERY_PROG;\n        else\n            ok = 0;\n    }\n\n    /* CATALOG_SEQ, CATALOG_COUNT, CATALOG_PROGS[100] */\n    if (rcnc_read_input_regs(1400, 102, regs) == 0) {\n        SEQ = (IEC_INT)(int16_t)regs[0];\n        COUNT = (IEC_INT)(int16_t)regs[1];\n        for (int i = 0; i < 100; i++)\n            PROGS[i] = (IEC_INT)(int16_t)regs[2 + i];\n    } else {\n        ok = 0;\n    }\n\n    /* VERSION_PROG, VERSION_COUNT, VERSION_NAMES[0..122] */\n    if (rcnc_read_input_regs(1510, 125, regs) == 0) {\n        VERSION_PROG = (IEC_INT)(int16_t)regs[0];\n        VERSION_COUNT = (IEC_INT)(int16_t)regs[1];\n        for (int i = 0; i < 123; i++)\n            VERSION_WORDS[i] = (IEC_INT)(int16_t)regs[2 + i];\n    } else {\n        ok = 0;\n    }\n\n    /* VERSION_NAMES[123..191], VERSION_ACTIVE */\n    if (rcnc_read_input_regs(1635, 70, regs) == 0) {\n        for (int i = 0; i < 69; i++)\n            VERSION_WORDS[123 + i] = (IEC_INT)(int16_t)regs[i];\n        VERSION_ACTIVE = (IEC_INT)(int16_t)regs[69];\n    } else {\n        ok = 0;\n    }\n\n    LINK_OK = (IEC_BOOL)ok;\n}",
+   "variables": [
+    {
+     "name": "QUERY_PROG",
+     "class": "input",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "LINK_OK",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "SEQ",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "COUNT",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "PROGS",
+     "class": "output",
+     "type": {
+      "definition": "array",
+      "value": "ARRAY [0..99] OF INT",
+      "data": {
+       "baseType": {
+        "definition": "base-type",
+        "value": "INT"
+       },
+       "dimensions": [
+        {
+         "dimension": "0..99"
+        }
+       ]
+      }
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VERSION_PROG",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VERSION_COUNT",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VERSION_WORDS",
+     "class": "output",
+     "type": {
+      "definition": "array",
+      "value": "ARRAY [0..191] OF INT",
+      "data": {
+       "baseType": {
+        "definition": "base-type",
+        "value": "INT"
+       },
+       "dimensions": [
+        {
+         "dimension": "0..191"
+        }
+       ]
+      }
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "VERSION_ACTIVE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "QUERY_SENT",
+     "class": "local",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    }
+   ],
+   "documentation": "RCNC_CATALOG - the programs robocnc holds and the init versions of one of them (robocnc 1.4.0).\n   robocnc owns the program folder and publishes it in registers (NC_Catalog.cpp); this block\n   reads them for the PLC, which passes them to the operator panel:\n     PROGS[0..COUNT-1]  the programs 8000..8999 in the folder, ascending (CATALOG 1400..1501)\n     SEQ                +1 whenever that list changes\n     QUERY_PROG         the program whose versions are wanted (written to 2350 when it changes)\n     VERSION_PROG       the program the version list is for (0: not in the folder / not yet)\n     VERSION_COUNT      its versions; version 0 is the default <n>.init\n     VERSION_WORDS      VERSION_COUNT names, 6 words each (2 characters a word, high byte first,\n                        zero-padded): name i = VERSION_WORDS[6*i .. 6*i+5]\n     VERSION_ACTIVE     the version the last program start took\n   Three reads (and a write when QUERY_PROG changes): call it in a slow group, not every scan.\n   Choosing the version to run is a plain write of its index to PROGRAM_VERSION_REQ (2351)\n   before the start, e.g. WRITE_PARAM_INT(ADDR := 2351, VALUE := idx).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+  },
+  {
    "name": "RCNC_CONNECT",
    "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    robocnc_connect();\n    CONNECTED = (robocnc_is_connected() != 0);\n}",
    "variables": [
