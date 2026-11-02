@@ -12,6 +12,13 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.12.0',
+    date: '2026-11-02',
+    changes: [
+      'An element of an array of function block instances can be called, as IEC 61131-3 (3rd edition) and CODESYS allow: settle[a](IN := AX_REFERENCING[a], PT := T#200ms), then settle[a].Q. Before, such a call did not compile and every element needed its own instance and call. Calling an element of an array that is not of function blocks is an error.',
+    ],
+  },
+  {
     version: '1.11.5',
     date: '2026-10-24',
     changes: [
