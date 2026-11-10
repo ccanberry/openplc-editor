@@ -12,6 +12,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.12.1',
+    date: '2026-11-10',
+    changes: [
+      'The editor no longer goes blank when the PLC stops or restarts while logged in. Its automatic logout repeated itself on every redraw until React stopped ("Maximum update depth exceeded") and the window went blank; it now logs out once.',
+      'PLC off: logged in, a PLC that stops, restarts or does not answer for 3 s (state UNKNOWN or no live values; not while held at a breakpoint) logs you out, and the console says "PLC off: logged out" with the reason.',
+      'Log in again when the PLC is back (File > Settings, on by default): once the PLC runs again the editor logs in by itself, asking nothing. The same program only: when the PLC runs another program, or the connection to the runtime is gone, it says so and leaves the Login to you.',
+    ],
+  },
+  {
     version: '1.12.0',
     date: '2026-11-02',
     changes: [

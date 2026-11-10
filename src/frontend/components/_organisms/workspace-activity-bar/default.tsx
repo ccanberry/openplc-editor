@@ -21,7 +21,7 @@ import { useDebugPolling } from '../../../hooks/useDebugPolling'
 import { useDebugSession } from '../../../hooks/useDebugSession'
 import { useRunControlSync } from '../../../hooks/useRunControl'
 import { useCodeViewPending } from '../../../services/code-view-edits'
-import { isClearConsoleOnBuild, isConfirmOnlineChange, isDevMode } from '../../../services/editor-settings'
+import { isAutoRelogin, isClearConsoleOnBuild, isConfirmOnlineChange, isDevMode } from '../../../services/editor-settings'
 import { releaseForces } from '../../../services/forcing'
 import { checkBoardPassword, connectToRuntime, needsBoardPassword } from '../../../services/runtime-connect'
 import { executeSaveProject } from '../../../services/save-actions'
@@ -145,7 +145,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const codeViewPending = useCodeViewPending()
   const loginDataRef = useRef<unknown>(null)
   // The Login handler, for the re-login after an online change (defined further down).
-  const reloginRef = useRef<(() => Promise<void>) | null>(null)
+  const reloginRef = useRef<((opts?: { auto?: boolean }) => Promise<void>) | null>(null)
   // Log out, asking first when variables are forced; false = the operator cancelled.
   const goOfflineRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true))
   const [simulatorRunning, setSimulatorRunning] = useState(false)
@@ -177,22 +177,82 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   const currentBoardInfo = availableBoards.get(deviceDefinitions.configuration.deviceBoard)
   const isSimulatorBoard = resolveTargetCapabilities(currentBoardInfo).isInProcessSimulator
 
-  // LOGGED OUT WHEN THE PLC STOPS OR THE BOARD IS GONE -- stopped from RoboStudio, a terminal or
-  // here, an error, or the runtime connection lost. The session showed values of a program that no
-  // longer runs and its breakpoints went with it. An upload's own stop is not counted (it logs in
-  // again to the new program, or out when the PLC stays stopped).
+  // LOGGED OUT WHEN THE PLC GOES OFF -- stopped from RoboStudio, a terminal or here, an error, a
+  // restart (the board's PLC does not answer: UNKNOWN, or no live values, for 3 s), or the runtime
+  // connection lost. The session showed values of a program that no longer runs and its
+  // breakpoints went with it. An upload's own stop is not counted (it logs in again to the new
+  // program, or out when the PLC stays stopped).
+  //
+  // ONCE PER EPISODE. It used to fire on every render until the logout had finished: its console
+  // line re-rendered this bar, the bar re-ran it (useDebugSession hands out a new object each
+  // render), another line... -- React gave up ("Maximum update depth exceeded") and the window
+  // went blank whenever the PLC stopped.
+  const debugDataStale = useOpenPLCStore((state) => state.workspace.debugDataStale)
+  const stopSessionRef = useRef(debugSession.stopSession)
+  stopSessionRef.current = debugSession.stopSession
+  const loggingOutRef = useRef(false)
+  // Logged out by the PLC, not by the operator: log in again when it runs (File > Settings).
+  const reloginPendingRef = useRef(false)
   useEffect(() => {
-    if (!isDebuggerVisible || isSimulatorBoard || deployingRef.current || isDebuggerProcessing) return
+    if (!isDebuggerVisible) {
+      loggingOutRef.current = false
+      return
+    }
+    if (isSimulatorBoard || deployingRef.current || isDebuggerProcessing || loggingOutRef.current) return
     const lost = connectionStatus !== 'connected'
     const stopped = plcStatus === 'STOPPED' || plcStatus === 'EMPTY' || plcStatus === 'ERROR'
-    if (!lost && !stopped) return
-    addLog({
-      id: crypto.randomUUID(),
-      level: 'warning',
-      message: `Logged out: ${lost ? 'the connection to the runtime was lost' : `the PLC is ${plcStatus}`}.`,
-    })
-    void debugSession.stopSession()
-  }, [plcStatus, connectionStatus, isDebuggerVisible, isSimulatorBoard, isDebuggerProcessing, debugSession, addLog])
+    const silent = plcStatus === 'UNKNOWN' || debugDataStale
+    if (!lost && !stopped && !silent) return
+    const logOut = (why: string) => {
+      if (loggingOutRef.current || deployingRef.current) return
+      loggingOutRef.current = true
+      reloginPendingRef.current = isAutoRelogin()
+      addLog({
+        id: crypto.randomUUID(),
+        level: 'warning',
+        message:
+          `PLC off: logged out (${why}).` +
+          (reloginPendingRef.current ? ' Logging in again when the PLC runs (File > Settings).' : ''),
+      })
+      void stopSessionRef.current()
+    }
+    if (lost || stopped) {
+      logOut(lost ? 'the connection to the runtime was lost' : `the PLC is ${plcStatus}`)
+      return
+    }
+    // A poll can miss once: off only when it stays silent. A PLC held at a breakpoint is not off.
+    const t = window.setTimeout(() => {
+      const st = useOpenPLCStore.getState()
+      if (
+        st.workspace.isDebuggerVisible &&
+        !st.workspace.debugHalted &&
+        (st.runtimeConnection.plcStatus === 'UNKNOWN' || st.workspace.debugDataStale)
+      )
+        logOut('the PLC does not answer')
+    }, 3000)
+    return () => window.clearTimeout(t)
+  }, [plcStatus, connectionStatus, isDebuggerVisible, isSimulatorBoard, isDebuggerProcessing, debugDataStale, addLog])
+
+  // ...AND IN AGAIN WHEN IT RUNS: the PLC RUNNING for 2 s, still connected, nobody logged in
+  // meanwhile. The normal Login, asking nothing: the same program is logged in to, anything else
+  // (another program on the PLC, no password at hand) is said and left to the operator.
+  useEffect(() => {
+    if (!reloginPendingRef.current || isDebuggerVisible || isDebuggerProcessing || deployingRef.current) return
+    if (!isAutoRelogin()) {
+      reloginPendingRef.current = false
+      return
+    }
+    if (connectionStatus !== 'connected' || plcStatus !== 'RUNNING') return
+    const t = window.setTimeout(() => {
+      const st = useOpenPLCStore.getState()
+      if (!reloginPendingRef.current || st.workspace.isDebuggerVisible || st.runtimeConnection.plcStatus !== 'RUNNING')
+        return
+      reloginPendingRef.current = false
+      addLog({ id: crypto.randomUUID(), level: 'info', message: 'PLC on again: logging in...' })
+      void reloginRef.current?.({ auto: true })
+    }, 2000)
+    return () => window.clearTimeout(t)
+  }, [plcStatus, connectionStatus, isDebuggerVisible, isDebuggerProcessing, addLog])
 
   // Sync simulatorRunning when the simulator stops externally
   useEffect(() => {
@@ -1057,12 +1117,14 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
   /**
    * Attach, deploy, or cancel. Compiles the project's debug build locally (no upload, PLC
    * untouched), then probes the target over the debug channel: program MD5, run control, and
-   * the checkpoint fingerprint (utils/debug-attach.ts). Asks before any download.
+   * the checkpoint fingerprint (utils/debug-attach.ts). Asks before any download. `auto` (the
+   * login again after the PLC came back) asks nothing: it attaches or it says why not.
    */
   const planDebugConnection = async (
     projectPath: string,
     boardTarget: string,
     debugConfig: DebugConnectionConfig,
+    auto = false,
   ): Promise<'attach' | 'monitor' | 'online' | 'deploy' | 'cancel'> => {
     const { consoleActions } = useOpenPLCStore.getState()
     const log = (level: 'info' | 'warning', message: string) =>
@@ -1102,6 +1164,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       return 'monitor'
     }
     log('warning', decision.reason)
+    if (auto) {
+      log('info', 'Not logged in again: the PLC does not run this program. Log in yourself to download or change it.')
+      return 'cancel'
+    }
     if (!decision.canDeploy) {
       await showDebuggerMessage('error', 'Cannot debug this target', decision.reason, ['OK'])
       return 'cancel'
@@ -1159,7 +1225,10 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     }
   }, [runtime])
 
-  const handleDebuggerClick = useCallback(async () => {
+  // `auto`: the login again after the PLC came back (reloginPendingRef). It asks nothing -- no
+  // save, no password, no download -- and says why when it cannot log in.
+  const handleDebuggerClick = useCallback(async (opts?: { auto?: boolean }) => {
+    const auto = opts?.auto === true
     // Simulator targets debug through the Start Simulator button
     // (compile + load firmware + connect), so the Debugger button
     // is hidden for them at the JSX level — but guard here too in
@@ -1168,8 +1237,12 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
     const { workspace, project, deviceDefinitions: devDefs, consoleActions } = useOpenPLCStore.getState()
 
+    // The operator's own Login or Logout ends any login-again still pending.
+    if (!auto) reloginPendingRef.current = false
+
     // Toggle off
     if (workspace.isDebuggerVisible) {
+      if (auto) return
       await goOfflineRef.current()
       return
     }
@@ -1183,8 +1256,9 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
       // on screen. Avoids the race where an editor change hadn't
       // bubbled up to `editingState === 'unsaved'` yet. Viewers
       // without write permission skip the save (same rationale as
-      // the build path — backend write would fail).
-      if (canEdit) {
+      // the build path — backend write would fail). The login again saves nothing: an unsaved
+      // edit then simply is not what the PLC runs, and it says so.
+      if (canEdit && !auto) {
         const saved = await executeSave()
         if (!saved) {
           setIsDebuggerProcessing(false)
@@ -1198,7 +1272,13 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
 
       // NOT CONNECTED: connect first instead of refusing -- the kept password in dev mode, else
       // one dialog for the board's address and password.
-      if (isOpenPLCRuntimeTarget(boardInfo) && useOpenPLCStore.getState().runtimeConnection.connectionStatus !== 'connected') {
+      if (auto) {
+        if (isOpenPLCRuntimeTarget(boardInfo) && useOpenPLCStore.getState().runtimeConnection.connectionStatus !== 'connected') {
+          consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Not logged in again: not connected.' })
+          setIsDebuggerProcessing(false)
+          return
+        }
+      } else if (isOpenPLCRuntimeTarget(boardInfo) && useOpenPLCStore.getState().runtimeConnection.connectionStatus !== 'connected') {
         const connected = await ensureRuntimeConnection()
         if (!connected) {
           setIsDebuggerProcessing(false)
@@ -1228,7 +1308,7 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
         // build/<target>/src) but upload nothing and leave the PLC running, then ask the target
         // whether it is that program, with run control on and the same checkpoint layout. Only
         // when it is not does the debugger offer the download -- which restarts the PLC.
-        const plan = await planDebugConnection(projectPath, boardTarget, debugConfig)
+        const plan = await planDebugConnection(projectPath, boardTarget, debugConfig, auto)
         loginBreakpointsRef.current = plan !== 'monitor'
         if (plan === 'cancel') {
           consoleActions.addLog({ id: crypto.randomUUID(), level: 'info', message: 'Login cancelled.' })

@@ -9,6 +9,9 @@
  *                        kept as debug lines and shown when it is switched on.
  *   confirmOnlineChange  default on. Logged in, a build asks OK / Cancel / Go offline first.
  *   clearConsoleOnBuild  default off. Each build starts with an empty console.
+ *   autoRelogin          default on. Logged out because the PLC went off (stopped, restarted, the
+ *                        board gone), the editor logs in again by itself once the PLC runs again
+ *                        -- the same program only; anything else is left to the operator.
  *
  * The live values' read period is a setting too (services/live-values).
  */
@@ -54,6 +57,7 @@ const devMode = booleanSetting('oplc.settings.dev-mode', false)
 const verbose = booleanSetting('oplc.settings.verbose', false)
 const confirmOnlineChange = booleanSetting('oplc.settings.confirm-online-change', true)
 const clearConsoleOnBuild = booleanSetting('oplc.settings.clear-console-on-build', false)
+const autoRelogin = booleanSetting('oplc.settings.auto-relogin', true)
 
 /** File > Settings asked for from the editor's own menu (the native one sends an accelerator). */
 const openRequests = new Set<() => void>()
@@ -84,3 +88,7 @@ export const useConfirmOnlineChange = confirmOnlineChange.use
 export const isClearConsoleOnBuild = clearConsoleOnBuild.get
 export const setClearConsoleOnBuild = clearConsoleOnBuild.set
 export const useClearConsoleOnBuild = clearConsoleOnBuild.use
+
+export const isAutoRelogin = autoRelogin.get
+export const setAutoRelogin = autoRelogin.set
+export const useAutoRelogin = autoRelogin.use

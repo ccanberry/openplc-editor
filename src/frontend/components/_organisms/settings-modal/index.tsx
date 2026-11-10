@@ -3,10 +3,12 @@ import { ReactNode, useEffect, useState } from 'react'
 import { useAccelerator, useRuntime } from '../../../../middleware/shared/providers'
 import {
   onOpenSettingsRequest,
+  setAutoRelogin,
   setClearConsoleOnBuild,
   setConfirmOnlineChange,
   setDevMode,
   setVerbose,
+  useAutoRelogin,
   useClearConsoleOnBuild,
   useConfirmOnlineChange,
   useDevMode,
@@ -56,6 +58,7 @@ const SettingsModal = () => {
   const verbose = useVerbose()
   const confirmOnline = useConfirmOnlineChange()
   const clearOnBuild = useClearConsoleOnBuild()
+  const autoRelogin = useAutoRelogin()
   const livePeriod = useLivePeriod()
   const [periodText, setPeriodText] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
@@ -117,6 +120,12 @@ const SettingsModal = () => {
             help='Logged in, the build menu does an online change only. On, it asks first: OK, Cancel or Go offline.'
             checked={confirmOnline}
             onChange={setConfirmOnlineChange}
+          />
+          <Toggle
+            label='Log in again when the PLC is back'
+            help='When the PLC goes off while logged in (stopped, restarted, the board not answering), the editor logs out and says so. On, it logs in again by itself once the PLC runs again -- the same program only; otherwise it tells you and leaves it to you. On by default.'
+            checked={autoRelogin}
+            onChange={setAutoRelogin}
           />
         </Section>
 
