@@ -439,7 +439,7 @@
   },
   {
    "name": "RCNC_CATALOG",
-   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    uint16_t regs[125];\n    int ok = 1;\n\n    /* the program asked about, written only when it changes */\n    if ((int)QUERY_PROG != (int)QUERY_SENT) {\n        if (robocnc_write_param_int(2350, (int)QUERY_PROG) != -1)\n            QUERY_SENT = QUERY_PROG;\n        else\n            ok = 0;\n    }\n\n    /* CATALOG_SEQ, CATALOG_COUNT, CATALOG_PROGS[100] */\n    if (rcnc_read_input_regs(1400, 102, regs) == 0) {\n        SEQ = (IEC_INT)(int16_t)regs[0];\n        COUNT = (IEC_INT)(int16_t)regs[1];\n        for (int i = 0; i < 100; i++)\n            PROGS[i] = (IEC_INT)(int16_t)regs[2 + i];\n    } else {\n        ok = 0;\n    }\n\n    /* VERSION_PROG, VERSION_COUNT, VERSION_NAMES[0..122] */\n    if (rcnc_read_input_regs(1510, 125, regs) == 0) {\n        VERSION_PROG = (IEC_INT)(int16_t)regs[0];\n        VERSION_COUNT = (IEC_INT)(int16_t)regs[1];\n        for (int i = 0; i < 123; i++)\n            VERSION_WORDS[i] = (IEC_INT)(int16_t)regs[2 + i];\n    } else {\n        ok = 0;\n    }\n\n    /* VERSION_NAMES[123..191], VERSION_ACTIVE */\n    if (rcnc_read_input_regs(1635, 70, regs) == 0) {\n        for (int i = 0; i < 69; i++)\n            VERSION_WORDS[123 + i] = (IEC_INT)(int16_t)regs[i];\n        VERSION_ACTIVE = (IEC_INT)(int16_t)regs[69];\n    } else {\n        ok = 0;\n    }\n\n    LINK_OK = (IEC_BOOL)ok;\n}",
+   "code": "#include <robocnc_link.h>\n\nvoid setup() {}\n\nvoid loop() {\n    uint16_t regs[125];\n    int ok = 1;\n\n    /* the program asked about, written only when it changes */\n    if ((int)QUERY_PROG != (int)QUERY_SENT) {\n        if (robocnc_write_param_int(2350, (int)QUERY_PROG) != -1)\n            QUERY_SENT = QUERY_PROG;\n        else\n            ok = 0;\n    }\n\n    /* CATALOG_SEQ, CATALOG_COUNT, CATALOG_PROGS[100] */\n    if (rcnc_read_input_regs(1400, 102, regs) == 0) {\n        SEQ = (IEC_INT)(int16_t)regs[0];\n        COUNT = (IEC_INT)(int16_t)regs[1];\n        for (int i = 0; i < 100; i++)\n            PROGS[i] = (IEC_INT)(int16_t)regs[2 + i];\n    } else {\n        ok = 0;\n    }\n\n    /* VERSION_PROG, VERSION_COUNT, VERSION_NAMES[0..122] */\n    if (rcnc_read_input_regs(1510, 125, regs) == 0) {\n        VERSION_PROG = (IEC_INT)(int16_t)regs[0];\n        VERSION_COUNT = (IEC_INT)(int16_t)regs[1];\n        for (int i = 0; i < 123; i++)\n            VERSION_WORDS[i] = (IEC_INT)(int16_t)regs[2 + i];\n    } else {\n        ok = 0;\n    }\n\n    /* VERSION_NAMES[123..191], VERSION_ACTIVE */\n    if (rcnc_read_input_regs(1635, 70, regs) == 0) {\n        for (int i = 0; i < 69; i++)\n            VERSION_WORDS[123 + i] = (IEC_INT)(int16_t)regs[i];\n        VERSION_ACTIVE = (IEC_INT)(int16_t)regs[69];\n    } else {\n        ok = 0;\n    }\n\n    /* CATALOG_LISTED[7], CATALOG_NAME_PAGE_SHOWN, CATALOG_NAMES[80] -- then ask for the next page */\n    if (rcnc_read_input_regs(1705, 88, regs) == 0) {\n        for (int i = 0; i < 7; i++)\n            LISTED[i] = (IEC_INT)(int16_t)regs[i];\n        const int shown = (int16_t)regs[7];\n        if (shown >= 0 && shown < 10)\n            for (int i = 0; i < 80; i++)\n                NAMES[shown * 80 + i] = (IEC_INT)(int16_t)regs[8 + i];\n        const int next = (shown >= 0 && shown < 9) ? shown + 1 : 0;\n        if (robocnc_write_param_int(2910, next) != -1)\n            NAME_PAGE = (IEC_INT)next;\n        else\n            ok = 0;\n    } else {\n        ok = 0;\n    }\n\n    LINK_OK = (IEC_BOOL)ok;\n}",
    "variables": [
     {
      "name": "QUERY_PROG",
@@ -582,9 +582,67 @@
      "initialValue": null,
      "documentation": "",
      "debug": false
+    },
+    {
+     "name": "LISTED",
+     "class": "output",
+     "type": {
+      "definition": "array",
+      "value": "ARRAY [0..6] OF INT",
+      "data": {
+       "baseType": {
+        "definition": "base-type",
+        "value": "INT"
+       },
+       "dimensions": [
+        {
+         "dimension": "0..6"
+        }
+       ]
+      }
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "NAMES",
+     "class": "output",
+     "type": {
+      "definition": "array",
+      "value": "ARRAY [0..799] OF INT",
+      "data": {
+       "baseType": {
+        "definition": "base-type",
+        "value": "INT"
+       },
+       "dimensions": [
+        {
+         "dimension": "0..799"
+        }
+       ]
+      }
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
+    },
+    {
+     "name": "NAME_PAGE",
+     "class": "output",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "location": "",
+     "initialValue": null,
+     "documentation": "",
+     "debug": false
     }
    ],
-   "documentation": "RCNC_CATALOG - the programs robocnc holds and the init versions of one of them (robocnc 1.4.0).\n   robocnc owns the program folder and publishes it in registers (NC_Catalog.cpp); this block\n   reads them for the PLC, which passes them to the operator panel:\n     PROGS[0..COUNT-1]  the programs 8000..8999 in the folder, ascending (CATALOG 1400..1501)\n     SEQ                +1 whenever that list changes\n     QUERY_PROG         the program whose versions are wanted (written to 2350 when it changes)\n     VERSION_PROG       the program the version list is for (0: not in the folder / not yet)\n     VERSION_COUNT      its versions; version 0 is the default <n>.init\n     VERSION_WORDS      VERSION_COUNT names, 6 words each (2 characters a word, high byte first,\n                        zero-padded): name i = VERSION_WORDS[6*i .. 6*i+5]\n     VERSION_ACTIVE     the version the last program start took\n     QUERY_SENT         the program last written to 2350 (an output only because a C block's\n                        own VAR section is not passed to its C code: the block keeps it here)\n   Three reads (and a write when QUERY_PROG changes): call it in a slow group, not every scan.\n   Choosing the version to run is a plain write of its index to PROGRAM_VERSION_REQ (2351)\n   before the start, e.g. WRITE_PARAM_INT(ADDR := 2351, VALUE := idx).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
+   "documentation": "RCNC_CATALOG - the programs robocnc holds and the init versions of one of them (robocnc 1.4.0).\n   robocnc owns the program folder and publishes it in registers (NC_Catalog.cpp); this block\n   reads them for the PLC, which passes them to the operator panel:\n     PROGS[0..COUNT-1]  the programs 8000..8999 in the folder, ascending (CATALOG 1400..1501)\n     SEQ                +1 whenever that list changes\n     QUERY_PROG         the program whose versions are wanted (written to 2350 when it changes)\n     VERSION_PROG       the program the version list is for (0: not in the folder / not yet)\n     VERSION_COUNT      its versions; version 0 is the default <n>.init\n     VERSION_WORDS      VERSION_COUNT names, 6 words each (2 characters a word, high byte first,\n                        zero-padded): name i = VERSION_WORDS[6*i .. 6*i+5]\n     VERSION_ACTIVE     the version the last program start took\n     QUERY_SENT         the program last written to 2350 (an output only because a C block's\n                        own VAR section is not passed to its C code: the block keeps it here)\n     LISTED             (robocnc 1.9.0) bit i of word i/16 = slot i (PROGS[i]) is listed on the\n                        operator's panel (cfg/programs.json; helper subprograms are not)\n     NAMES              (robocnc 1.9.0) the programs' names, 8 words each (2 characters a word,\n                        high byte first, zero-padded, UTF-8): name i = NAMES[8*i .. 8*i+7].\n                        Fetched a page of 10 per call (CATALOG_NAME_PAGE 2910 -> 1712..1792), so\n                        all of them are in after 10 calls; NAME_PAGE is the page asked for next.\n   Four reads and a write (and one more when QUERY_PROG changes): call it in a slow group, not\n   every scan.\n   Choosing the version to run is a plain write of its index to PROGRAM_VERSION_REQ (2351)\n   before the start, e.g. WRITE_PARAM_INT(ADDR := 2351, VALUE := idx).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN."
   },
   {
    "name": "RCNC_CONNECT",
