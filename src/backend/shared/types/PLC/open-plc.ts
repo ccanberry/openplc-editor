@@ -183,6 +183,13 @@ const PLCVariableSchema = z.object({
    * load unchanged (absent = group "Global").
    */
   group: z.string().optional(),
+  /**
+   * A GVL's code view (global variables only): the comment and blank lines that stand above this
+   * declaration, and below it for the last of a block. The code view writes them back where they
+   * were; the table does not show them.
+   */
+  codeBefore: z.string().optional(),
+  codeAfter: z.string().optional(),
 })
 
 type PLCVariable = z.infer<typeof PLCVariableSchema>

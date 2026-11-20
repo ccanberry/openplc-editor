@@ -97,21 +97,38 @@ export const parseIecStringToVariables = (
   let currentPersistent = false
   // Tracks an open (* ... *) comment block spanning multiple lines.
   let inBlockComment = false
+  // A GVL'S OWN LINES (2026-11-20): the comment and blank lines that stand between its
+  // declarations are kept with the declaration they precede (`codeBefore`), those before END_VAR
+  // with the last one (`codeAfter`). The code view writes them back where they were; the table
+  // does not show them. A comment on a declaration's own line is its documentation, as before.
+  let pending: string[] = []
+  let lastInBlock: PLCVariable | null = null
+  const pushVar = (v: PLCVariable) => {
+    if (currentClass === 'global' && pending.length > 0) v.codeBefore = pending.join('\n')
+    pending = []
+    variables.push(v)
+    lastInBlock = v
+  }
 
   lines.forEach((rawLine, idx) => {
     const lineNumber = idx + 1
     const line = rawLine.trim()
-    if (line === '') return
+    if (line === '') {
+      if (currentClass === 'global' && !inBlockComment) pending.push('')
+      return
+    }
 
     // Skip standalone IEC comments inside VAR blocks. These are ordinary
     // documentation lines (e.g. `(* DIO outputs *)`) that carry no
     // declaration; without this the comment fails the variable regex and
     // the whole block is discarded, blanking the variable table.
     if (inBlockComment) {
+      if (currentClass === 'global') pending.push(line)
       if (line.includes('*)')) inBlockComment = false
       return
     }
     if (line.startsWith('(*')) {
+      if (currentClass === 'global') pending.push(line)
       if (!line.includes('*)')) inBlockComment = true
       return
     }
@@ -129,10 +146,17 @@ export const parseIecStringToVariables = (
       const retainable = kind === 'VAR' || kind === 'VAR_GLOBAL'
       currentPersistent = retainable && /^VAR(_GLOBAL)?\s+(RETAIN\s+PERSISTENT|PERSISTENT(\s+RETAIN)?)\b/i.test(line)
       currentRetain = retainable && (currentPersistent || /^VAR(_GLOBAL)?\s+RETAIN\b/i.test(line))
+      pending = []
+      lastInBlock = null
       return
     }
 
     if (/^END_VAR\b/i.test(line)) {
+      // the lines after the last declaration stay after it (trailing blank lines are not kept)
+      while (pending.length > 0 && pending[pending.length - 1] === '') pending.pop()
+      if (currentClass === 'global' && lastInBlock && pending.length > 0) lastInBlock.codeAfter = pending.join('\n')
+      pending = []
+      lastInBlock = null
       currentClass = null
       currentRetain = false
       currentPersistent = false
@@ -171,7 +195,7 @@ export const parseIecStringToVariables = (
     // Check if it's an array type first
     const arrayType = parseArrayType(parsedType)
     if (arrayType) {
-      variables.push({
+      pushVar({
         name: name.trim(),
         class: currentClass,
         type: arrayType,
@@ -210,7 +234,7 @@ export const parseIecStringToVariables = (
         ? { definition: 'derived' as const, value: parsedType }
         : { definition: 'user-data-type' as const, value: parsedType }
 
-    variables.push({
+    pushVar({
       name: name.trim(),
       class: currentClass,
       type: typeDefinition,

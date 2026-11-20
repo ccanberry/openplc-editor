@@ -1,10 +1,10 @@
-import { ColumnFiltersState, createColumnHelper } from '@tanstack/react-table'
+import { ColumnFiltersState, createColumnHelper, OnChangeFn, SortingFn, SortingState } from '@tanstack/react-table'
 import { useEffect, useMemo } from 'react'
 
 import type { PLCGlobalVariable } from '../../../../middleware/shared/ports/types'
 import { usePouSnapshot } from '../../../hooks/use-pou-snapshot'
 import { useOpenPLCStore } from '../../../store'
-import { gvlOf } from '../../../utils/global-variable-lists'
+import { compareGvlBy, gvlOf } from '../../../utils/global-variable-lists'
 import { GenericTable } from '../../_atoms/generic-table'
 import { LiveTreeCell } from '../../_features/[workspace]/forcing/live-tree-cell'
 import {
@@ -23,6 +23,9 @@ import {
 
 const columnHelper = createColumnHelper<PLCGlobalVariable>()
 
+/** A header click sorts the VIEW in natural order (%IX0.2 before %IX0.10), as the code view's Sort. */
+const natural: SortingFn<PLCGlobalVariable> = (a, b, columnId) => compareGvlBy(a.original, b.original, columnId)
+
 const columns = [
   columnHelper.display({
     id: 'rowNumber',
@@ -34,6 +37,7 @@ const columns = [
     cell: (props) => props.row.index,
   }),
   columnHelper.accessor('name', {
+    sortingFn: natural,
     header: 'Name',
     enableResizing: true,
     size: 300,
@@ -43,11 +47,13 @@ const columns = [
   }),
   columnHelper.accessor('class', {
     header: 'Class',
+    enableSorting: false,
     enableResizing: true,
     cell: 'Global',
   }),
   // The row's GVL: another name moves it to that GVL (a new name makes a new GVL).
   columnHelper.accessor('group', {
+    sortingFn: natural,
     header: 'GVL',
     enableResizing: true,
     size: 160,
@@ -58,6 +64,7 @@ const columns = [
     filterFn: (row, _columnId, gvls: string[]) => gvls.length === 0 || gvls.includes(gvlOf(row.original)),
   }),
   columnHelper.accessor('type', {
+    sortingFn: natural,
     header: 'Type',
     enableResizing: true,
     size: 300,
@@ -66,16 +73,19 @@ const columns = [
     cell: SelectableTypeCell,
   }),
   columnHelper.accessor('location', {
+    sortingFn: natural,
     header: 'Location',
     enableResizing: true,
     cell: EditableLocationCell,
   }),
   columnHelper.accessor('initialValue', {
+    sortingFn: natural,
     header: 'Initial Value',
     enableResizing: true,
     cell: EditableInitialValueCell,
   }),
   columnHelper.accessor('documentation', {
+    sortingFn: natural,
     header: 'Documentation',
     enableResizing: true,
     size: 468,
@@ -124,6 +134,9 @@ type PLCVariablesTableProps = {
   handleRowClick: (row: HTMLTableRowElement) => void
   /** The GVL shown; every row when absent. */
   gvl?: string
+  /** The view's order (a header click); the stored order when empty. */
+  sorting?: SortingState
+  setSorting?: OnChangeFn<SortingState>
 }
 
 const GlobalVariablesTable = ({
@@ -131,6 +144,8 @@ const GlobalVariablesTable = ({
   selectedRow,
   handleRowClick,
   gvl,
+  sorting,
+  setSorting,
 }: PLCVariablesTableProps) => {
   const {
     editor: {
@@ -162,6 +177,8 @@ const GlobalVariablesTable = ({
       selectedRow={selectedRow}
       handleRowClick={handleRowClick}
       columnFilters={columnFilters}
+      sorting={sorting}
+      setSorting={setSorting}
       updateData={(rowIndex, columnId, value) => {
         captureAndPush(name)
         const result = updateVariable({ scope: 'global', rowId: rowIndex, data: { [columnId]: value } })

@@ -76,6 +76,10 @@ export interface PLCVariable {
   retain?: boolean
   /** RETAIN PERSISTENT (CODESYS): survives a clean upload too. Implies `retain`. */
   persistent?: boolean
+  /** A GVL's code view: the comment / blank lines above this declaration, and (the last one of a
+   *  block) below it. Kept for the code view; the table does not show them. */
+  codeBefore?: string
+  codeAfter?: string
 }
 
 export interface PLCTask {

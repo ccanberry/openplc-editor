@@ -130,3 +130,49 @@ export function lastInGvl(all: PLCVariable[], gvl: string): number {
   for (let i = all.length - 1; i >= 0; i--) if (gvlOf(all[i]) === gvl) return i
   return -1
 }
+
+/**
+ * SORTING A GVL (2026-11-20): by a column, in natural order (`%IX0.2` before `%IX0.10`, `Pump2`
+ * before `Pump10`), empty values last whichever way. The table sorts its VIEW by a header click
+ * and can keep that order; the code view rewrites its declarations in the order picked. A
+ * variable's own comment lines (codeBefore / codeAfter) travel with it.
+ */
+export type GvlSortKey = 'name' | 'type' | 'location' | 'initialValue' | 'documentation'
+export const GVL_SORT_KEYS: { key: GvlSortKey; label: string }[] = [
+  { key: 'name', label: 'Name' },
+  { key: 'type', label: 'Type' },
+  { key: 'location', label: 'Location (I/O)' },
+  { key: 'initialValue', label: 'Initial value' },
+  { key: 'documentation', label: 'Documentation' },
+]
+const gvlCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+export const gvlSortValue = (v: PLCVariable, key: string): string => {
+  if (key === 'type') return String(v.type?.value ?? '')
+  const raw = (v as unknown as Record<string, unknown>)[key]
+  if (raw === undefined || raw === null) return ''
+  return typeof raw === 'object' ? JSON.stringify(raw) : String(raw as string | number | boolean)
+}
+/** a < b by `key`; empty values after every filled one. */
+export const compareGvlBy = (a: PLCVariable, b: PLCVariable, key: string): number => {
+  const x = gvlSortValue(a, key).trim()
+  const y = gvlSortValue(b, key).trim()
+  if (!x && y) return 1
+  if (x && !y) return -1
+  return gvlCollator.compare(x, y)
+}
+/** The GVL's variables in the order of `key` (stable), in the GVL's own slots of `all`. */
+export function sortGvl(all: PLCVariable[], gvl: string, key: string, desc = false): PLCVariable[] {
+  const mine = all
+    .filter((v) => gvlOf(v) === gvl)
+    .map((v, i) => ({ v, i }))
+    .sort((p, q) => {
+      const pe = !gvlSortValue(p.v, key).trim()
+      const qe = !gvlSortValue(q.v, key).trim()
+      if (pe !== qe) return pe ? 1 : -1                  // empty last, both ways
+      const c = compareGvlBy(p.v, q.v, key)
+      return (desc ? -c : c) || p.i - q.i
+    })
+    .map((p) => p.v)
+  let k = 0
+  return all.map((v) => (gvlOf(v) === gvl ? mine[k++] : v))
+}

@@ -54,6 +54,16 @@ const ORDERED_GROUPS = [
 const VAR_BLOCK_INDENT = '  '
 const VAR_DECL_INDENT = '    '
 
+/** A GVL's kept lines (codeBefore / codeAfter), indented as declarations; blank lines stay blank. */
+const codeLines = (text?: string): string =>
+  text === undefined || text === null
+    ? ''
+    : text
+        .split('\n')
+        .map((l) => (l.trim() === '' ? '' : VAR_DECL_INDENT + l.trim()))
+        .join('\n') + '\n'
+const codeLineCount = (text?: string): number => (text === undefined || text === null ? 0 : text.split('\n').length)
+
 export const generateIecVariablesToString = (variables: PLCVariable[]): string => {
   if (!variables || variables.length === 0) {
     return `${VAR_BLOCK_INDENT}VAR\n${VAR_BLOCK_INDENT}END_VAR`
@@ -81,6 +91,8 @@ export const generateIecVariablesToString = (variables: PLCVariable[]): string =
       textualDeclaration += `${VAR_BLOCK_INDENT}${blockHeader}\n`
 
       groupedVariables[groupName].forEach((v) => {
+        // a GVL's own comment / blank lines above the declaration (parseIecStringToVariables)
+        textualDeclaration += codeLines(v.codeBefore)
         let line = `${VAR_DECL_INDENT}${v.name} : ${v.type.value}`
 
         if (v.location) {
@@ -101,6 +113,7 @@ export const generateIecVariablesToString = (variables: PLCVariable[]): string =
         }
 
         textualDeclaration += line + '\n'
+        textualDeclaration += codeLines(v.codeAfter)
       })
 
       // xml2st emits consecutive var-class blocks back-to-back with no
@@ -158,8 +171,10 @@ export function getIecVariableLineMap(variables: PLCVariable[]): Map<string, { l
     if (!group) continue
     currentLine++ // skip the VAR_xxx header line
     for (const v of group) {
+      currentLine += codeLineCount(v.codeBefore) // a GVL's own lines above it
       map.set(v.name, { line: currentLine, column: varNameColumn })
       currentLine++ // advance past the declaration
+      currentLine += codeLineCount(v.codeAfter)
     }
     currentLine++ // skip the END_VAR line
   }

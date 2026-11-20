@@ -4,7 +4,9 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
+  getSortedRowModel,
   OnChangeFn,
+  SortingState,
   useReactTable,
 } from '@tanstack/react-table'
 import { useEffect, useRef } from 'react'
@@ -24,6 +26,10 @@ type GenericTableProps<T> = {
   filterValue?: string
   columnFilters?: ColumnFiltersState
   setColumnFilters?: OnChangeFn<ColumnFiltersState> | undefined
+  /** A table whose VIEW sorts by a header click (A-Z, Z-A, off). Rows keep their ids, so the
+   *  selection and the edits still name the stored row. Absent: no sorting, as before. */
+  sorting?: SortingState
+  setSorting?: OnChangeFn<SortingState>
 }
 
 function GenericTable<T>({
@@ -36,7 +42,10 @@ function GenericTable<T>({
   filterValue,
   columnFilters,
   setColumnFilters,
+  sorting,
+  setSorting,
 }: GenericTableProps<T>) {
+  const sortable = sorting !== undefined && setSorting !== undefined
   const tableHeaderRef = useRef<HTMLTableSectionElement>(null)
   const tableBodyRef = useRef<HTMLTableSectionElement>(null)
   const tableBodyRowRef = useRef<HTMLTableRowElement>(null)
@@ -107,7 +116,9 @@ function GenericTable<T>({
     },
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    state: { columnFilters },
+    ...(sortable ? { getSortedRowModel: getSortedRowModel(), onSortingChange: setSorting } : {}),
+    enableSorting: sortable,
+    state: sortable ? { columnFilters, sorting } : { columnFilters },
     onColumnFiltersChange: setColumnFilters,
     meta: {
       updateData: (rowIndex, columnId, value) => {
@@ -133,8 +144,14 @@ function GenericTable<T>({
                   minWidth: header.column.columnDef.minSize,
                 }}
                 key={header.id}
+                className={cn(sortable && header.column.getCanSort() && 'cursor-pointer hover:text-brand')}
+                onClick={sortable && header.column.getCanSort() ? header.column.getToggleSortingHandler() : undefined}
+                title={sortable && header.column.getCanSort() ? 'Sort by this column (again: the other way, then off)' : undefined}
               >
                 {flexRender(header.column.columnDef.header, header.getContext())}
+                {sortable && header.column.getIsSorted() && (
+                  <span className='ml-1 text-brand'>{header.column.getIsSorted() === 'asc' ? '▲' : '▼'}</span>
+                )}
               </TableHead>
             ))}
           </TableRow>

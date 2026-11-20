@@ -1,4 +1,5 @@
 // import * as PrimitiveSwitch from '@radix-ui/react-switch'
+import type { SortingState } from '@tanstack/react-table'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { PLCGlobalVariable } from '../../../../middleware/shared/ports/types'
@@ -12,7 +13,16 @@ import { useOpenPLCStore } from '../../../store'
 import type { GlobalVariablesTableType } from '../../../store/slices/editor'
 import { cn } from '../../../utils/cn'
 import { parseIecStringToVariables } from '../../../utils/generate-iec-string-to-variables'
-import { groupField, gvlOf, gvlToCode, lastInGvl, mergeGvlCode, neighbourInGvl } from '../../../utils/global-variable-lists'
+import {
+  groupField,
+  GVL_SORT_KEYS,
+  gvlOf,
+  gvlToCode,
+  lastInGvl,
+  mergeGvlCode,
+  neighbourInGvl,
+  sortGvl,
+} from '../../../utils/global-variable-lists'
 import TableActions from '../../_atoms/table-actions'
 import { toast } from '../../_features/[app]/toast/use-toast'
 import { GlobalVariablesTable } from '../../_molecules/global-variables-table'
@@ -76,6 +86,10 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
   })
 
   const visibleData = useMemo(() => tableData.filter((v) => gvlOf(v) === gvl), [tableData, gvl])
+  // THE TABLE'S VIEW ORDER (a header click): the rows stay where they are stored until "Keep this
+  // order"; moving a row up or down means the stored order, so it waits for an unsorted view
+  const [sorting, setSorting] = useState<SortingState>([])
+  const sorted = sorting.length > 0
 
   const containerRef = useRef<HTMLDivElement>(null)
   const latestCodeRef = useRef(editorCode)
@@ -292,6 +306,44 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
     })
   }
 
+  /** The sorted view becomes this GVL's stored order (the code view and the compile follow it). */
+  const keepSortedOrder = () => {
+    if (!sorted) return
+    pushToHistory(editor.meta.name)
+    const variables = sortGvl(globalVariables.filter((v) => v.name), gvl, sorting[0].id, sorting[0].desc)
+    const response = setGlobalVariables({ variables })
+    if (!response.ok) {
+      toast({ title: response.title, description: response.message, variant: 'fail' })
+      return
+    }
+    handleFileAndWorkspaceSavedState('Resource')
+    setSorting([])
+    updateModelVariables({ display: 'table', selectedRow: ROWS_NOT_SELECTED })
+  }
+
+  /** The code view in the order picked: what is typed is taken first, then put in that order. */
+  const sortCode = (choice: string) => {
+    const [key, dir] = choice.split(':')
+    if (!key) return
+    try {
+      pushToHistory(editor.meta.name)
+      const merged = mergeGvlCode(globalVariables.filter((v) => v.name), gvl, parseIecStringToVariables(editorCode))
+      if (!merged.ok) throw new Error(merged.message)
+      const variables = sortGvl(merged.variables, gvl, key, dir === 'desc')
+      const response = setGlobalVariables({ variables })
+      if (!response.ok) throw new Error(response.title + (response.message ? `: ${response.message}` : ''))
+      handleFileAndWorkspaceSavedState('Resource')
+      const code = gvlToCode(variables.filter((v) => gvlOf(v) === gvl))
+      lastParsedCodeRef.current = code
+      setEditorCode(code)
+      setParseError(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unexpected syntax error.'
+      setParseError(message)
+      toast({ title: 'Not sorted', description: message, variant: 'fail' })
+    }
+  }
+
   const commitCode = (): boolean => {
     try {
       pushToHistory(editor.meta.name)
@@ -341,6 +393,46 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
         <div aria-label='Variables editor table actions container' className='flex h-full w-full justify-between'>
           <span className='select-none'>{gvl}</span>
 
+          {editorVariables.display === 'table' && sorted && (
+            <div className='flex items-center gap-2 text-xs'>
+              <span className='text-neutral-500'>sorted view</span>
+              <button
+                type='button'
+                className='rounded-md bg-brand px-2 py-1 text-white hover:opacity-90'
+                onClick={keepSortedOrder}
+                title='Store this order: the code view and the compile follow it'
+              >
+                Keep this order
+              </button>
+              <button
+                type='button'
+                className='rounded-md border border-neutral-400 px-2 py-1 hover:border-brand'
+                onClick={() => setSorting([])}
+              >
+                Stored order
+              </button>
+            </div>
+          )}
+
+          {editorVariables.display === 'code' && (
+            <select
+              aria-label='Sort the declarations'
+              className='mr-20 h-7 rounded-md border border-neutral-400 bg-transparent px-2 text-xs dark:border-neutral-700'
+              value=''
+              onChange={(e) => sortCode(e.target.value)}
+            >
+              <option value=''>Sort…</option>
+              {GVL_SORT_KEYS.flatMap(({ key, label }) => [
+                <option key={`${key}:asc`} value={`${key}:asc`}>
+                  {label} A → Z
+                </option>,
+                <option key={`${key}:desc`} value={`${key}:desc`}>
+                  {label} Z → A
+                </option>,
+              ])}
+            </select>
+          )}
+
           {editorVariables.display === 'table' && (
             <div
               aria-label='Variables editor table actions container'
@@ -365,6 +457,7 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
                     ariaLabel: 'Move table row up button',
                     onClick: () => handleRearrangeVariables(-1),
                     disabled:
+                      sorted ||
                       parseInt(editorVariables.selectedRow) === ROWS_NOT_SELECTED ||
                       neighbourInGvl(tableData, gvl, parseInt(editorVariables.selectedRow), -1) === null,
                     icon: <StickArrowIcon direction='up' className='stroke-[#0464FB]' />,
@@ -374,6 +467,7 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
                     ariaLabel: 'Move table row down button',
                     onClick: () => handleRearrangeVariables(1),
                     disabled:
+                      sorted ||
                       parseInt(editorVariables.selectedRow) === ROWS_NOT_SELECTED ||
                       neighbourInGvl(tableData, gvl, parseInt(editorVariables.selectedRow), 1) === null,
                     icon: <StickArrowIcon direction='down' className='stroke-[#0464FB]' />,
@@ -421,6 +515,8 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
             selectedRow={parseInt(editorVariables.selectedRow)}
             handleRowClick={handleRowClick}
             gvl={gvl}
+            sorting={sorting}
+            setSorting={setSorting}
           />
         </div>
       )}
