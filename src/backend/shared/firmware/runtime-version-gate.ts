@@ -84,7 +84,7 @@ export function describeIncompatibleRuntime(raw: string | null | undefined): str
   const reported = raw && raw.trim().length > 0 ? raw.trim() : 'unknown'
   return (
     `Runtime version ${reported} is not compatible with this editor.  ` +
-    `Upload requires OpenPLC Runtime v${MIN_STRUCPP_RUNTIME_VERSION} or newer (STruC++ pipeline).  ` +
+    `Upload requires RoboPLC Runtime v${MIN_STRUCPP_RUNTIME_VERSION} or newer (STruC++ pipeline).  ` +
     `Please upgrade the runtime on the target device before pushing this build.`
   )
 }

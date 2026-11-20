@@ -291,7 +291,7 @@ class MainProcessBridge implements MainIpcModule {
   handleRuntimeLoginSuite = async (event: IpcMainInvokeEvent, ipAddress: string) => {
     const username = process.env.OPENPLC_APPLIANCE_USER || ''
     const password = process.env.OPENPLC_APPLIANCE_PASSWORD || ''
-    if (!username || !password) return { success: false, error: 'not started by the OpenPLC Suite' }
+    if (!username || !password) return { success: false, error: 'not started by the RoboPLC Suite' }
     return this.handleRuntimeLogin(event, ipAddress, username, password)
   }
 

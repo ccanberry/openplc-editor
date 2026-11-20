@@ -20,6 +20,7 @@ import { Checkbox } from '../../../../../_atoms/checkbox'
 import { DropdownSearchInput } from '../../../../../_atoms/dropdown-search-input'
 import { Label } from '../../../../../_atoms/label'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../../../../../_atoms/select'
+import { brand } from '../../../../../../utils/brand'
 import TableActions from '../../../../../_atoms/table-actions'
 import { EtherCATStats } from '../../../../../_molecules/ethercat-stats'
 import { Modal, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '../../../../../_molecules/modal'
@@ -435,7 +436,7 @@ const Board = memo(function () {
             >
               <SelectTrigger
                 aria-label='Device selection'
-                placeholder={formattedBoardState}
+                placeholder={brand(formattedBoardState)}
                 withIndicator
                 className='flex h-[30px] w-full items-center justify-between gap-1 rounded-md border border-neutral-100 bg-white px-2 py-1 font-caption text-cp-sm font-medium text-neutral-850 outline-none data-[state=open]:border-brand-medium-dark dark:border-neutral-850 dark:bg-neutral-950 dark:text-neutral-300'
               />
@@ -475,7 +476,7 @@ const Board = memo(function () {
                   groupedBoards.map(({ vendor, boards }) => (
                     <div key={vendor} data-board-group className='py-1'>
                       <div className='select-none px-2 py-1 font-caption text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400'>
-                        {vendor}
+                        {brand(vendor)}
                       </div>
                       {boards.map(({ board, data }) => {
                         const showVersion = !isSimulatorTarget(data) && data.coreVersion
@@ -490,7 +491,7 @@ const Board = memo(function () {
                             value={formattedBoard}
                           >
                             <span className='flex items-center gap-2 font-caption text-cp-sm font-medium text-neutral-850 dark:text-neutral-300'>
-                              {formattedBoard}
+                              {brand(formattedBoard)}
                             </span>
                           </SelectItem>
                         )

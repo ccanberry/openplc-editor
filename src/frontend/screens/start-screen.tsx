@@ -78,7 +78,7 @@ const StartScreen = () => {
       <div className='flex h-full w-full items-center justify-center bg-neutral-950'>
         <div className='flex flex-col items-center gap-6 text-center'>
           <div className='flex flex-col items-center gap-2'>
-            <h1 className='text-2xl font-semibold text-neutral-100'>Welcome to OpenPLC Editor</h1>
+            <h1 className='text-2xl font-semibold text-neutral-100'>Welcome to RoboPLC Suite</h1>
             <p className='max-w-md text-neutral-400'>
               No project is currently loaded. Please provide a project ID in the URL to load a project.
             </p>

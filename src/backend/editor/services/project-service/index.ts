@@ -208,7 +208,7 @@ class ProjectService {
           success: false,
           error: {
             title: 'Invalid project',
-            description: 'The selected directory is not a valid OpenPLC project.',
+            description: 'The selected directory is not a valid RoboPLC project.',
           },
         }
       }

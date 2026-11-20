@@ -76,7 +76,7 @@ function checkIfDirectoryIsAValidProjectDirectory(basePath: string): {
       ? undefined
       : {
           title: 'Invalid project',
-          description: 'The selected directory is not a valid OpenPLC project.',
+          description: 'The selected directory is not a valid RoboPLC project.',
           error: new Error('project.json not found in directory'),
         },
   }

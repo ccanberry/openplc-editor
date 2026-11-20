@@ -9,7 +9,6 @@
 import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron'
 import Installer from 'electron-devtools-installer'
 import log from 'electron-log'
-import { autoUpdater } from 'electron-updater'
 import { enableMapSet } from 'immer'
 import { platform, release } from 'os'
 import { join, resolve } from 'path'
@@ -28,11 +27,11 @@ import { store } from './modules/store'
 
 enableMapSet()
 
+// No auto-update: this is Robotek's build (RoboPLC Suite), installed with the Suite, and sites have
+// no internet. The upstream updater would have checked Autonomy Logic's releases on every start.
 class AppUpdater {
   constructor() {
     log.transports.file.level = 'info'
-    autoUpdater.logger = log
-    void autoUpdater.checkForUpdatesAndNotify()
   }
 }
 

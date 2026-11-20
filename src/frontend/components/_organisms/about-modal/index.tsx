@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import { useAccelerator, useCapabilities, useSystem } from '../../../../middleware/shared/providers'
-import openPlcLogo from '../../../assets/icons/about/logo.svg'
 import { APP_VERSION } from '../../../data/constants/app-version'
 import { useOpenPLCStore } from '../../../store'
+import { BASED_ON } from '../../../utils/brand'
 import { Modal, ModalContent } from '../../_molecules/modal'
 
 // Per-app product name, injected at build time (Vite `define` in web =
@@ -33,11 +33,11 @@ const AboutModal = () => {
   const closeModal = () => {
     setModalOpen('aboutOpenPlc', false)
   }
-  const title = `${typeof APP_NAME !== 'undefined' ? APP_NAME : 'OpenPLC'} ${APP_VERSION}`
+  const title = `${typeof APP_NAME !== 'undefined' ? APP_NAME : 'RoboPLC Editor'} ${APP_VERSION}`
   const releaseDate = `Release: ${typeof BUILD_DATE !== 'undefined' ? BUILD_DATE : ''}`
-  const description = 'Open Source IDE for the OpenPLC Runtime, compliant with the IEC 61131-3 international standard.'
+  const description = 'IDE for the RoboPLC Runtime, compliant with the IEC 61131-3 international standard.'
   const copyrightYear = new Date().getFullYear()
-  const copyright = `\u00A9 ${copyrightYear} Autonomy Logic`
+  const copyright = `RoboPLC \u00A9 ${copyrightYear} Robotek`
   const linkUrl = 'https://autonomylogic.com'
 
   const handleOpenAboutLink = () => {
@@ -65,7 +65,7 @@ const AboutModal = () => {
     <Modal onOpenChange={handleOpenChange} open={isAboutModalOpen}>
       <ModalContent className='h-[520px] w-[508px] select-none flex-col justify-between px-4 py-4'>
         <div className='flex h-[180px] w-full items-center justify-center bg-[#0464fb]'>
-          <img src={openPlcLogo} />
+          <span className='text-4xl font-bold tracking-wide text-white'>RoboPLC</span>
         </div>
 
         <div className='text-center text-xs font-normal text-neutral-950 dark:text-neutral-200'>
@@ -77,6 +77,7 @@ const AboutModal = () => {
             <p className='mt-4'>{description}</p>
           </div>
           <p className='mt-4'>{copyright}</p>
+          <p className='mt-2 text-[11px] text-neutral-500 dark:text-neutral-400'>{BASED_ON}</p>
           <p className='mt-4'>
             <button onClick={() => void handleOpenAboutLink()} className='text-[#0464fb] underline'>
               {linkUrl}

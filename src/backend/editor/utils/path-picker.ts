@@ -63,7 +63,7 @@ const getOpenProjectPath = async (serviceManager: GetProjectPathProps) => {
       success: false,
       error: {
         title: 'Invalid project',
-        description: 'The selected directory is not a valid OpenPLC project. No project.json file found.',
+        description: 'The selected directory is not a valid RoboPLC project. No project.json file found.',
       },
     }
   }

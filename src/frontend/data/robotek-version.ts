@@ -8,6 +8,6 @@
 // Left as 'dev' for `npm run dev`.
 export const ROBOTEK_VERSION = 'dev'
 
-/** e.g. "OpenPLC Editor Robotek v1.0.8" (or "… Robotek dev" in a dev run). */
+/** e.g. "RoboPLC Suite v1.13.0" (or "RoboPLC Suite dev" in a dev run). */
 export const ROBOTEK_TITLE =
-  'OpenPLC Editor Robotek ' + (ROBOTEK_VERSION === 'dev' ? 'dev' : 'v' + ROBOTEK_VERSION)
+  'RoboPLC Suite ' + (ROBOTEK_VERSION === 'dev' ? 'dev' : 'v' + ROBOTEK_VERSION)

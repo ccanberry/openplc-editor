@@ -1,4 +1,4 @@
-// Robotek OpenPLC Suite changelog, shown in the "!" About panel (activity bar,
+// RoboPLC Suite changelog, shown in the "!" About panel (activity bar,
 // just above Exit). Newest first. Keep in sync with the suite version in
 // installer/openplc-suite.iss (MyAppVersion): add an entry each time you bump
 // it. `version` is matched against ROBOTEK_VERSION to flag the running build.
@@ -11,6 +11,24 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '1.14.0',
+    date: '2026-11-20',
+    changes: [
+      'GVL table: a click on a column header (Name, GVL, Type, Location, Initial Value, Documentation, Publish, Retain, Persistent) sorts the view, natural order (%IX0.2 before %IX0.10), again the other way, a third time back to the stored order. "Keep this order" stores the sorted order; the code view and the compile follow it.',
+      'GVL code view: Sort... puts the declarations in the order of a column, A to Z or Z to A.',
+      'GVL code view: comment and blank lines between declarations stay where they were (they travel with the declaration below them) and do not show in the table. A comment on a declaration\'s own line is its documentation, as before.',
+    ],
+  },
+  {
+    version: '1.13.0',
+    date: '2026-11-10',
+    changes: [
+      'RoboPLC: the OpenPLC Suite is now the RoboPLC Suite -- one "RoboPLC Suite" shortcut (the editor no longer adds an icon of its own), RoboPLC on the title bar, the splash screen, the start screen and in the device list. RoboPLC is built on OpenPLC v4 (Help: About and the version history say so). Projects and device names in them are unchanged: older projects open as before.',
+      'Everything is in the installer, nothing is downloaded: on a Windows without WSL the setup installs Microsoft\'s WSL package that it carries (WSL 2), or switches on WSL 1 on an older Windows 10; where WSL 2 cannot run, the runtime is set up as WSL 1. The setup lists what it installs (versions) and the minimum requirements, and its last page says whether the runtime is ready or finishes after a restart.',
+      'The editor no longer checks for updates online on every start.',
+    ],
+  },
   {
     version: '1.12.1',
     date: '2026-11-10',

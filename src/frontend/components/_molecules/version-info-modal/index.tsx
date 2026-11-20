@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { CHANGELOG } from '../../../data/changelog'
 import { ROBOTEK_TITLE, ROBOTEK_VERSION } from '../../../data/robotek-version'
 import { cn } from '../../../utils/cn'
+import { BASED_ON } from '../../../utils/brand'
 
 type VersionInfoModalProps = {
   open: boolean
@@ -39,7 +40,8 @@ export const VersionInfoModal = ({ open, onClose }: VersionInfoModalProps) => {
         <div className='mb-4 flex items-start justify-between gap-4'>
           <div>
             <h2 className='text-lg font-semibold text-neutral-900 dark:text-neutral-100'>{ROBOTEK_TITLE}</h2>
-            <p className='text-xs text-neutral-500 dark:text-neutral-400'>Robotek OpenPLC Suite — version history</p>
+            <p className='text-xs text-neutral-500 dark:text-neutral-400'>RoboPLC Suite — version history</p>
+            <p className='text-[10px] text-neutral-500 dark:text-neutral-400'>{BASED_ON}</p>
           </div>
           <button
             aria-label='Close'
