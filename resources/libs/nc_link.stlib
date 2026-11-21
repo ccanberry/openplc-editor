@@ -1,0 +1,6585 @@
+{
+ "formatVersion": 1,
+ "manifest": {
+  "name": "nc_link",
+  "version": "1.0.0",
+  "namespace": "nc_link",
+  "functions": [],
+  "functionBlocks": [],
+  "types": [],
+  "globals": [],
+  "headers": [],
+  "isBuiltin": true,
+  "sourceFiles": [],
+  "displayName": "RoboCNC NC Link (dispenser line)",
+  "description": "The dispenser line's link to robocnc, delivered as a library: robocnc state and positions in, axis commands and parameters out, program start, catalogue, parameter check, the HMI's developer page and override, the reaction to an emergency stop and the reference. Needs robocnc_link."
+ },
+ "chunks": [],
+ "dependencies": [],
+ "sources": [],
+ "cppBlocks": [],
+ "stPous": [
+  {
+   "name": "DROP_START_REQUESTS",
+   "pouType": "function",
+   "interface": {
+    "returnType": "BOOL",
+    "variables": [
+     {
+      "name": "ProgramStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ManuelDispensingStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ManuelCleaningStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "GoMaintenanceStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "LineLoadingStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CalibrationStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* EVERY START REQUEST DROPPED: the program start and the service requests (manual dispensing,\n   cleaning, maintenance position, line loading, calibration). The service requests are level bytes\n   START_STOP turns into ProgramStart every scan: a start that fails or is refused must drop them\n   too, or the request comes back by itself later (NC_START). *)\nProgramStart := 0;\nManuelDispensingStart := 0;\nManuelCleaningStart := 0;\nGoMaintenanceStart := 0;\nLineLoadingStart := 0;\nCalibrationStart := 0;\nDROP_START_REQUESTS := TRUE;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "P_SET",
+   "pouType": "function",
+   "interface": {
+    "returnType": "BOOL",
+    "variables": [
+     {
+      "name": "N",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "V",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_VAL",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_DIRTY",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* A ROBOCNC PARAMETER WRITTEN BY THE PLC: P_SET(N := n, V := v) stores P<n> := v in P_VAL and\n   marks it for sending (P_DIRTY; NC_LINK_OUT sends the marked ones to robocnc) -- only when the\n   value changed, so an unchanged value costs nothing on the link. TRUE when it changed. *)\nP_SET := P_VAL[N] <> V;\nIF P_SET THEN\n\tP_VAL[N] := V;\n\tP_DIRTY[N] := TRUE;\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "DEVCNC",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "CleaningPositionXCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CleaningPositionYCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CleaningPositionZCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CalibrationPositionXCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CalibrationPositionYCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CalibrationPositionZCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevAckSeq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevAxisCount",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevCmd",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevCmdAcc",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevCmdAxis",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevCmdSeq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevCmdTarget",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevCmdVel",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevJogAcc",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevJogAlive",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevJogDir",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevJogTarget",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevJogVel",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevResult",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevTeachAck",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevTeachId",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevTeachResult",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevTeachSeq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevTeachX",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevTeachY",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DevTeachZ",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "EmergencyOK",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "FlowRegulationPositionZCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HomePositionXCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HomePositionYCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MaintenancePositionXCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MaintenancePositionYCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MaintenancePositionZCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ManuelDispensingPositionXCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ManuelDispensingPositionYCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ManuelDispensingPositionZCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcFaultStop",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgramRunning",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_DIRTY",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_VAL",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "S1XOffset",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "S1YOffset",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "S1ZOffset",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "S2XOffset",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "S2YOffset",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "S2ZOffset",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "WastePositionXCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "WastePositionYCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "WastePositionZCoordinate",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ax",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "RCNC_AXIS_CMD"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_t",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_v",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_a",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_home",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "lease",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "last_word",
+      "class": "local",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "first",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": "TRUE",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "last_seq",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "last_teach",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "alive_last",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "jog_on",
+      "class": "local",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "jog_d",
+      "class": "local",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "jog_t",
+      "class": "local",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "jog_v",
+      "class": "local",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "want",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "again",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "refuse",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "res",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "a",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "c",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "k",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "x",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "y",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "z",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* THE HMI'S DEVELOPER PAGE, WITH THE PLC RUNNING. robocnc takes axis commands only from the\n   PLC while one is linked (TCPModbusServer::writeIsProtected), so the page asks here and this\n   program passes them on -- the way NC_LINK_OUT drives the pumps, through the same blocks. Nothing\n   moves while a program runs, the emergency stop is pressed or a fault has stopped the machine;\n   a stop is always taken. A program of its own, called by the task after PLC_PRG, so the\n   original programs are unchanged.\n\n   THE MAILBOX (written by the HMI, by name):\n     DevCmdSeq   bumped for each command; DevCmd, DevCmdAxis, DevCmdTarget/Vel/Acc its words.\n                 DevCmd: robocnc's axis codes 10 enable, 99 disable, 20 home, 80 stop, 91 clear\n                 fault, 100 move relative, 101 move absolute (machine coordinates); for every\n                 axis 0..DevAxisCount-1: 1010 enable, 1099 disable, 1080 stop, 1000 home all\n                 (robocnc's own order, axes.json home_order).\n     DevAckSeq   = DevCmdSeq once taken; DevResult 0 done, 1 a program is running, 2 the\n                 emergency stop, 3 the machine is stopped by a fault (Reset first), 4 not a\n                 command / no such axis, 5 robocnc is not linked.\n     DevJog*     the held jogs, per axis (the joystick moves X and Y together): DevJogDir[a]\n                 (-1/0/+1), DevJogTarget[a] (where it runs to: the end of travel), DevJogVel[a],\n                 DevJogAcc[a]; and DevJogAlive, renewed by the page while anything is held: 500 ms\n                 without a renewal and every jog stops (a closed browser cannot leave one running).\n                 A speed changed by more than 4 % (the joystick's deflection) issues the move again.\n     DevTeachSeq, DevTeachId  set a position to where the tool tip is now (P0..P2: the actual\n                 position less the active tool, robocnc's TCP). Kept (RETAIN) and sent to robocnc\n                 as the program parameter it feeds. DevTeachAck/Result as above, DevTeachX/Y/Z\n                 the values taken. Ids: 1 waste, 2 wet cleaning, 3 maintenance, 4 manual\n                 dispensing, 5 calibration, 6 table 1 reference (S1), 7 table 2 reference (S2),\n                 8 home position (X, Y: its Z is the machine's top less the tool), 9 flow\n                 regulation height (Z). *)\nIF first THEN\n\tfirst := FALSE;\n\tlast_seq := DevCmdSeq;\n\tlast_teach := DevTeachSeq;\n\talive_last := DevJogAlive;\nEND_IF;\n\nIF NOT CncLinkOk THEN refuse := 5;\nELSIF NcProgramRunning THEN refuse := 1;\nELSIF NOT EmergencyOK THEN refuse := 2;\nELSIF NcFaultStop THEN refuse := 3;\nELSE refuse := 0;\nEND_IF;\n\n(* ---- one command ---- *)\nIF DevCmdSeq <> last_seq THEN\n\tlast_seq := DevCmdSeq;\n\tres := refuse;\n\t(* a stop is always taken, a program running or not *)\n\tIF (DevCmd = 80 OR DevCmd = 1080) AND CncLinkOk THEN res := 0; END_IF;\n\ta := DevCmdAxis;\n\tIF res = 0 THEN\n\t\tIF DevCmd = 10 OR DevCmd = 99 OR DevCmd = 20 OR DevCmd = 80 OR DevCmd = 91 THEN\n\t\t\tIF a < 0 OR a > 15 THEN\n\t\t\t\tres := 4;\n\t\t\tELSE\n\t\t\t\t(* robocnc acts on a CHANGE of the word: the same command again is preceded by a stop *)\n\t\t\t\tIF last_word[a] = DevCmd AND DevCmd <> 80 THEN ax(ID := a, CMD := 80); END_IF;\n\t\t\t\tax(ID := a, CMD := DevCmd);\n\t\t\t\tlast_word[a] := DevCmd;\n\t\t\tEND_IF;\n\t\tELSIF DevCmd = 100 OR DevCmd = 101 THEN\n\t\t\tIF a < 0 OR a > 15 THEN\n\t\t\t\tres := 4;\n\t\t\tELSE\n\t\t\t\twp_t(ADDR := 3000 + 2 * a, VALUE := DevCmdTarget);\n\t\t\t\twp_v(ADDR := 3100 + 2 * a, VALUE := DevCmdVel);\n\t\t\t\twp_a(ADDR := 3200 + 2 * a, VALUE := DevCmdAcc);\n\t\t\t\tIF last_word[a] = DevCmd THEN ax(ID := a, CMD := 80); END_IF;\n\t\t\t\tax(ID := a, CMD := DevCmd);\n\t\t\t\tlast_word[a] := DevCmd;\n\t\t\tEND_IF;\n\t\tELSIF DevCmd = 1000 THEN\n\t\t\twp_home(ADDR := 2068, VALUE := 1);\n\t\tELSIF DevCmd = 1010 OR DevCmd = 1099 OR DevCmd = 1080 THEN\n\t\t\tc := DevCmd - 1000;\n\t\t\tFOR k := 0 TO 15 DO\n\t\t\t\tIF k < DevAxisCount THEN\n\t\t\t\t\tIF last_word[k] = c AND c <> 80 THEN ax(ID := k, CMD := 80); END_IF;\n\t\t\t\t\tax(ID := k, CMD := c);\n\t\t\t\t\tlast_word[k] := c;\n\t\t\t\tEND_IF;\n\t\t\tEND_FOR;\n\t\tELSE\n\t\t\tres := 4;\n\t\tEND_IF;\n\tEND_IF;\n\tDevResult := res;\n\tDevAckSeq := last_seq;\nEND_IF;\n\n(* ---- the held jogs: a move to the end of travel while the page renews it ---- *)\nIF DevJogAlive <> alive_last THEN\n\talive_last := DevJogAlive;\n\tlease(IN := FALSE, PT := T#500ms);\nEND_IF;\nlease(IN := TRUE, PT := T#500ms);\nFOR k := 0 TO 15 DO\n\twant := DevJogDir[k] <> 0 AND DevJogVel[k] > 0.0 AND NOT lease.Q AND refuse = 0;\n\tIF jog_on[k] AND NOT want THEN\n\t\tax(ID := k, CMD := 80);\n\t\tlast_word[k] := 80;\n\t\tjog_on[k] := FALSE;\n\tEND_IF;\n\tagain := jog_on[k] AND want AND (DevJogDir[k] <> jog_d[k] OR DevJogTarget[k] <> jog_t[k]\n\t         OR ABS(DevJogVel[k] - jog_v[k]) > 0.04 * jog_v[k]);\n\tIF want AND (NOT jog_on[k] OR again) THEN\n\t\tjog_d[k] := DevJogDir[k];\n\t\tjog_t[k] := DevJogTarget[k];\n\t\tjog_v[k] := DevJogVel[k];\n\t\twp_t(ADDR := 3000 + 2 * k, VALUE := DevJogTarget[k]);\n\t\twp_v(ADDR := 3100 + 2 * k, VALUE := DevJogVel[k]);\n\t\twp_a(ADDR := 3200 + 2 * k, VALUE := DevJogAcc[k]);\n\t\tIF last_word[k] = 101 THEN ax(ID := k, CMD := 80); END_IF;\n\t\tax(ID := k, CMD := 101);\n\t\tlast_word[k] := 101;\n\t\tjog_on[k] := TRUE;\n\tEND_IF;\nEND_FOR;\n\n(* ---- set a position to where the tool tip is ---- *)\nIF DevTeachSeq <> last_teach THEN\n\tlast_teach := DevTeachSeq;\n\tx := P_VAL[0];\n\ty := P_VAL[1];\n\tz := P_VAL[2];\n\tIF NOT CncLinkOk THEN\n\t\tres := 5;\n\tELSIF NcProgramRunning THEN\n\t\tres := 1;\n\tELSE\n\t\tres := 0;\n\t\tCASE DevTeachId OF\n\t\t\t1:\n\t\t\t\tWastePositionXCoordinate := x; WastePositionYCoordinate := y; WastePositionZCoordinate := z;\n\t\t\t\tP_VAL[1811] := x; P_VAL[1812] := y; P_VAL[1813] := z;\n\t\t\t\tP_DIRTY[1811] := TRUE; P_DIRTY[1812] := TRUE; P_DIRTY[1813] := TRUE;\n\t\t\t2:\n\t\t\t\tCleaningPositionXCoordinate := x; CleaningPositionYCoordinate := y; CleaningPositionZCoordinate := z;\n\t\t\t\tP_VAL[1801] := x; P_VAL[1802] := y; P_VAL[1803] := z;\n\t\t\t\tP_DIRTY[1801] := TRUE; P_DIRTY[1802] := TRUE; P_DIRTY[1803] := TRUE;\n\t\t\t3:\n\t\t\t\tMaintenancePositionXCoordinate := x; MaintenancePositionYCoordinate := y; MaintenancePositionZCoordinate := z;\n\t\t\t\tP_VAL[1821] := x; P_VAL[1822] := y; P_VAL[1823] := z;\n\t\t\t\tP_DIRTY[1821] := TRUE; P_DIRTY[1822] := TRUE; P_DIRTY[1823] := TRUE;\n\t\t\t4:\n\t\t\t\tManuelDispensingPositionXCoordinate := x; ManuelDispensingPositionYCoordinate := y;\n\t\t\t\tManuelDispensingPositionZCoordinate := z;\n\t\t\t\tP_VAL[1831] := x; P_VAL[1832] := y; P_VAL[1833] := z;\n\t\t\t\tP_DIRTY[1831] := TRUE; P_DIRTY[1832] := TRUE; P_DIRTY[1833] := TRUE;\n\t\t\t5:\n\t\t\t\tCalibrationPositionXCoordinate := x; CalibrationPositionYCoordinate := y; CalibrationPositionZCoordinate := z;\n\t\t\t\tP_VAL[1841] := x; P_VAL[1842] := y; P_VAL[1843] := z;\n\t\t\t\tP_DIRTY[1841] := TRUE; P_DIRTY[1842] := TRUE; P_DIRTY[1843] := TRUE;\n\t\t\t6:\n\t\t\t\tS1XOffset := x; S1YOffset := y; S1ZOffset := z;\n\t\t\t\tP_VAL[1845] := x; P_VAL[1846] := y; P_VAL[1847] := z;\n\t\t\t\tP_DIRTY[1845] := TRUE; P_DIRTY[1846] := TRUE; P_DIRTY[1847] := TRUE;\n\t\t\t7:\n\t\t\t\tS2XOffset := x; S2YOffset := y; S2ZOffset := z;\n\t\t\t\tP_VAL[1848] := x; P_VAL[1849] := y; P_VAL[1850] := z;\n\t\t\t\tP_DIRTY[1848] := TRUE; P_DIRTY[1849] := TRUE; P_DIRTY[1850] := TRUE;\n\t\t\t8:\n\t\t\t\tHomePositionXCoordinate := x; HomePositionYCoordinate := y;\n\t\t\t\tP_VAL[1816] := x; P_VAL[1817] := y;\n\t\t\t\tP_DIRTY[1816] := TRUE; P_DIRTY[1817] := TRUE;\n\t\t\t9:\n\t\t\t\tFlowRegulationPositionZCoordinate := z;\n\t\t\t\tP_VAL[1815] := z;\n\t\t\t\tP_DIRTY[1815] := TRUE;\n\t\tELSE\n\t\t\tres := 4;\n\t\tEND_CASE;\n\tEND_IF;\n\tDevTeachX := x;\n\tDevTeachY := y;\n\tDevTeachZ := z;\n\tDevTeachResult := res;\n\tDevTeachAck := last_teach;\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "NC_CATALOG",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "NcCatalogSeq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgCount",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgList",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..99] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..99"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgQuery",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcVersionProg",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcVersionCount",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcVersionWords",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..191] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..191"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcVersionActive",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgListed",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..6] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..6"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgNames",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..799] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..799"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "rcnc_cat",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "RCNC_CATALOG"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* THE PROGRAM CATALOGUE (PLC_PRG's 500 ms group): what robocnc holds and the init versions of the\n   program the HMI asks about, for the HMI's program picker. *)\nrcnc_cat(QUERY_PROG := NcProgQuery);\nIF rcnc_cat.LINK_OK THEN\n\tNcCatalogSeq := rcnc_cat.SEQ;\n\tNcProgCount := rcnc_cat.COUNT;\n\tNcProgList := rcnc_cat.PROGS;\n\tNcVersionProg := rcnc_cat.VERSION_PROG;\n\tNcVersionCount := rcnc_cat.VERSION_COUNT;\n\tNcVersionWords := rcnc_cat.VERSION_WORDS;\n\tNcVersionActive := rcnc_cat.VERSION_ACTIVE;\n\tNcProgListed := rcnc_cat.LISTED;\n\tNcProgNames := rcnc_cat.NAMES;\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "NC_EMERGENCY",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "NcLink",
+      "class": "external",
+      "type": {
+       "definition": "user-data-type",
+       "value": "ST_NcLink"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DriveEnableReq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "EmergencyOK",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HomeRequiredMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HomingDone",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MachineStatus",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcHomedMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "RefDeclined",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "i",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "F_TRIG_RefEmergency",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "F_TRIG"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "TON_LinkLost",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "R_TRIG_NcLost",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "R_TRIG"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* ROBOCNC ON AN EMERGENCY STOP AND WHEN IT IS LOST (before the machine logic): every axis is braked\n   and disabled on the stop (robocnc's 81, the reference kept), the drive request drops when robocnc\n   goes away, and HomingDone follows robocnc's homed axes. EmergencyOK is the machine's\n   (EMERGENCY, right after this). *)\n(* homing: RoboCNC per-axis homed bits; required set = X,Y,Z (2#111).\n   Original checked REFPUNKT_ANGEFAHREN_W = 511 (9 axes) with 5 enabled -\n   over-broad; requirement now explicit. *)\n(* AN EMERGENCY STOP DROPS THE DRIVES, NOT THE REFERENCE. The drives go off as the machine's safety\n   chain switches them off, and only a Ready press enables them again (6.1 item 3, 8.1 step 2).\n   robocnc keeps an axis homed across a disable, so a machine that has been referenced once stays\n   referenced: it is homed again only if it never was (after power-up, or a robocnc restart). *)\nF_TRIG_RefEmergency(CLK := EmergencyOK);\nIF F_TRIG_RefEmergency.Q THEN\n\tDriveEnableReq := FALSE;\n\tRefDeclined := FALSE;          (* the reference question comes back after an emergency stop *)\n\t(* ...EVERY time, also on a machine that is still referenced (robocnc keeps the reference\n\t   across the stop): the operator decides whether the axes are homed again (user, 2026-11-11). *)\n\tNcLink.RefAskAfterEmergency := TRUE;\n\t(* EVERY AXIS STOPS, whatever moves it: a program (START_STOP stops it, FAULTS repeats that),\n\t   a move or a jog from the HMI's developer page (sent straight to robocnc), the reference\n\t   run, a pump. robocnc's 81 per axis: braked at its emergency deceleration, then disabled --\n\t   the reference is kept. Sent below until robocnc has it, for all 16 axis slots (an axis\n\t   robocnc does not have ignores it), also when the drives were not enabled. *)\n\tNcLink.StopCode := 81;\n\tFOR i := 0 TO 15 DO NcLink.CmdPending[i] := TRUE; END_FOR;\nEND_IF;\n(* A LOST ROBOCNC DROPS THE ENABLE REQUEST TOO. A restarted robocnc comes up with every axis off\n   and unreferenced; left TRUE here, the PLC went on believing the drives were requested, and a\n   Ready press had nothing consistent to start from. robocnc is gone when its link stays down for\n   1 s (a single failed read is not), or when it answers in RESET (0) -- a restart, or the fault\n   recovery in START_STOP. Taken on the edge: the next Ready hold enables and references as at\n   power-up, also while robocnc is still in its INIT. *)\nTON_LinkLost(IN := NOT CncLinkOk, PT := t#1s);\nR_TRIG_NcLost(CLK := TON_LinkLost.Q OR (CncLinkOk AND MachineStatus = 0));\nIF R_TRIG_NcLost.Q THEN\n\tDriveEnableReq := FALSE;\n\tRefDeclined := FALSE;          (* ...and after a robocnc restart, which lost the reference *)\nEND_IF;\nIF (NcHomedMask AND HomeRequiredMask) = HomeRequiredMask THEN\n\tHomingDone := TRUE;\nELSE\n\tHomingDone := FALSE;\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "NC_LINK_IN",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "PlcAxisLink",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF ST_PlcAxis",
+       "data": {
+        "baseType": {
+         "definition": "user-data-type",
+         "value": "ST_PlcAxis"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcLink",
+      "class": "external",
+      "type": {
+       "definition": "user-data-type",
+       "value": "ST_NcLink"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "m_m850_bit_",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "m_m850_part_",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "A_DispensingType",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CurrentRow",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MachineStatus",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MessageUnknownMFunction",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M0_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M100_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M101_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M1_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M200_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M201_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M250_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M300_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M301_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M30_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M400_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M401_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M500_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M850_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M851_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M950_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "M_M999_bit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcAxisMovingW",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcEnabledMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcFaultMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcHomedMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcHomingActiveW",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgramRunning",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgStoppedB",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcReady",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcTargetReachedW",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PlcAxisJog",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PlcAxisMapped",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ProgramRunningNum",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_DIRTY",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_VAL",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "SecondZStageInstalled",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "SimulationActive",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "SimulationSoftButton",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "SecondZStageLowerLimit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "SecondZStageUpperLimit",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ToolLenght",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [1..4] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "1..4"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HmiToolX",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HmiToolY",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HmiToolZ",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HmiToolNo",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PROG_CLEANING",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PROG_FLOW_REGULATION",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "rcnc_conn",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "RCNC_CONNECT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "rcnc_sync",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "RCNC_NC_SYNC"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "m_disp",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "M_DISPATCH"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "r_m850_part",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "R_TRIG"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "m850_is_part",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "mr_stage",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "MRESET"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "i",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_conn",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "conn_req_done",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": "FALSE",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ax_pos",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_tool",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_toolsel",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "mt_clock",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "free-running stopwatch: mt_clock.ET is \"now\"",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* ROBOCNC -> PLC, first in every scan: the link (robocnc's own bring-up of the drives), the tool,\n   robocnc's state, the head's and the PLC axes' positions, the parameters robocnc writes back,\n   the simulation flag, and the M-codes the running program calls. Machine independent: a new\n   machine copies it as it is. *)\nrcnc_conn();\nrcnc_sync();\n(* restarts itself every 20 days; a wait that spans the restart just ends early *)\nmt_clock(IN := NOT mt_clock.Q, PT := T#20d);\nNcLink.Clock := mt_clock.ET;\nCncLinkOk := rcnc_sync.LINK_OK;\n\n(* drive_connect=manual (cfg/system.json): the fieldbus stays DOWN until a\n   client raises DRIVE_CONNECT_REQ (2057). RoboCNC-native bring-up: raise it\n   once per link-up; a robocnc restart drops the link and re-arms this. *)\nIF CncLinkOk AND NOT conn_req_done THEN\n\twp_conn(ADDR := 2057, VALUE := 1);\n\tIF wp_conn.DONE THEN conn_req_done := TRUE; END_IF;\nEND_IF;\nIF NOT CncLinkOk THEN conn_req_done := FALSE; END_IF;\n\n(* THE TOOL: T1 of robocnc's tool table (robocnc 1.2.0, holding 2250 active, 2252.. T1 X/Y/Z) is\n   the mixing head of the dispensing type, and it is the active tool -- what the original's\n   SINGLEBLOCK('G93 Z=P1710 T1') did. Written whenever robocnc reports another tool, so a new\n   dispensing type, a fresh table and a robocnc restart all get it; robocnc applies it between\n   moves, and the programs no longer carry the G93 line. *)\nIF CncLinkOk AND (rcnc_sync.TOOL_NO <> 1 OR rcnc_sync.TOOL_X <> 0.0 OR rcnc_sync.TOOL_Y <> 0.0\n                  OR rcnc_sync.TOOL_Z <> ToolLenght[A_DispensingType]) THEN\n\twp_tool(ADDR := 2252, VALUE := 0.0);\n\twp_tool(ADDR := 2254, VALUE := 0.0);\n\twp_tool(ADDR := 2256, VALUE := ToolLenght[A_DispensingType]);\n\twp_toolsel(ADDR := 2250, VALUE := 1);\nEND_IF;\nMachineStatus := rcnc_sync.MACHINE_STATUS;\nNcProgramRunning := rcnc_sync.PROG_RUNNING;\nNcProgStoppedB := NOT rcnc_sync.PROG_RUNNING;\nNcAxisMovingW := SEL(rcnc_sync.MOTION_ACTIVE, 0, 1);\nNcTargetReachedW := rcnc_sync.DONE_MASK;\nNcHomedMask := rcnc_sync.HOMED_MASK;\nNcEnabledMask := rcnc_sync.ENABLED_MASK;\nNcFaultMask := rcnc_sync.FAULT_MASK;\nNcHomingActiveW := 0; (* RoboCNC homing is EtherCAT-native; exposed per-axis in\n                         AXES_STATUS only while running - not needed here *)\nNcReady := (MachineStatus >= 2) AND (MachineStatus <= 11) AND CncLinkOk;\nCurrentRow := rcnc_sync.CURRENT_ROW;\nProgramRunningNum := rcnc_sync.PROG_NO;\n\n(* NC actual positions into the P-field mirror (Eckelmann PF convention).\n   AXIS MAP (bench-config! see PORT_LOG): 0=X 1=Y 2=Z 3..6 = dosing pumps /\n   shuttle (vom_nc.mk: C,U,V,W). *)\n(* The TIP position (axis - the NC's active tool), as the Eckelmann reported it: the\n   machine logic compares these with tip heights (IN_POSITION, SHUTTLE_TABLE). *)\nP_VAL[16] := rcnc_sync.TIP_X;     (* X *)\nP_VAL[17] := rcnc_sync.TIP_Y;     (* Y *)\nP_VAL[18] := rcnc_sync.TIP_Z;     (* Z *)\nP_VAL[0]  := rcnc_sync.TIP_X;\nP_VAL[1]  := rcnc_sync.TIP_Y;\nP_VAL[2]  := rcnc_sync.TIP_Z;     (* used by SHUTTLE_TABLE *)\n(* the active tool, for the panel (HMI_POSITIONS) *)\nHmiToolX := rcnc_sync.TOOL_X;\nHmiToolY := rcnc_sync.TOOL_Y;\nHmiToolZ := rcnc_sync.TOOL_Z;\nHmiToolNo := rcnc_sync.TOOL_NO;\n(* PLC-axis actual positions, the original contract: P(16+i) = PLC axis i (P19 B1, P20 A1,\n   P21 B2 / in-line table, P22 A3, P23 A2, P24 side-by-side table). Read through PlcAxisMapped,\n   like the commands: a fixed axis number per pump gave A2 the position of B1's pump on\n   Cubotonic. Relative to the zero the last pump reset (jog 102) took. *)\nFOR i := 3 TO 8 DO\n\tIF PlcAxisMapped[i] >= 0 THEN\n\t\tCASE PlcAxisMapped[i] OF\n\t\t\t0: ax_pos := rcnc_sync.POS_AX0;\n\t\t\t1: ax_pos := rcnc_sync.POS_AX1;\n\t\t\t2: ax_pos := rcnc_sync.POS_AX2;\n\t\t\t3: ax_pos := rcnc_sync.POS_AX3;\n\t\t\t4: ax_pos := rcnc_sync.POS_AX4;\n\t\t\t5: ax_pos := rcnc_sync.POS_AX5;\n\t\t\t6: ax_pos := rcnc_sync.POS_AX6;\n\t\tELSE\n\t\t\tax_pos := 0.0;\n\t\tEND_CASE;\n\t\t(* dosing pumps (3..7) run in full turns on robocnc; the PLC counts pump degrees *)\n\t\tIF i <= 7 THEN ax_pos := ax_pos * 360.0; END_IF;\n\t\tPlcAxisLink[i].Actual := ax_pos;\n\t\tP_VAL[16 + i] := ax_pos - PlcAxisLink[i].Zero;\n\t\t(* ON ARRIVAL, THE TARGET EXACTLY. The Eckelmann NC reported a PLC axis that had finished its\n\t\t   \"go to target\" (jog 110) at the commanded position, and CALIBRATION ends a PMS calibration\n\t\t   on that equality. robocnc's position comes back MEASURED -- a drive following its profile\n\t\t   settles a few degrees either side of the end, the bench's simulated axis too -- through\n\t\t   turns and the pump reset's zero, and never equals the REAL target. So the arrival is\n\t\t   robocnc's own: the move it was given has run -- its done bit dropped after the command and\n\t\t   came back, or, for a move with nowhere to go, has stood for 300 ms (a timer, not a scan count,\n\t\t   so it means the same at any task interval), well past\n\t\t   the moment robocnc takes a request and publishes it -- and from then on the PLC sees the\n\t\t   target, as it did. *)\n\t\tIF PlcAxisJog[i] = 110 AND PlcAxisLink[i].LastCmd = 101 THEN\n\t\t\tIF NOT GETBIT(NcTargetReachedW, PlcAxisMapped[i]) THEN\n\t\t\t\tPlcAxisLink[i].SeenBusy := TRUE;\n\t\t\tELSIF PlcAxisLink[i].SeenBusy OR (NcLink.Clock - PlcAxisLink[i].CmdSince >= T#300ms) OR (NcLink.Clock < PlcAxisLink[i].CmdSince) THEN\n\t\t\t\tPlcAxisLink[i].Arrived := TRUE;\n\t\t\tEND_IF;\n\t\t\tIF PlcAxisLink[i].Arrived THEN P_VAL[16 + i] := PlcAxisLink[i].Target; END_IF;\n\t\tEND_IF;\n\tEND_IF;\nEND_FOR;\n\n(* DIN-handshake P-values (written by the running .din via G21/:P=) *)\nP_VAL[1700] := rcnc_sync.P1700;\nP_VAL[1703] := rcnc_sync.P1703;\nP_VAL[1705] := rcnc_sync.P1705;\n(* Writable parameters come back from robocnc every scan, but a value this PLC wrote is\n   flushed at most 4 per scan in address order: copying robocnc's value over a pending one\n   sent the OLD value back (P2047 kept simulation on after it was switched off). *)\nIF NOT P_DIRTY[1710] THEN P_VAL[1710] := rcnc_sync.P1710; END_IF;\nIF NOT P_DIRTY[1835] THEN P_VAL[1835] := rcnc_sync.P1835; END_IF;\nIF NOT P_DIRTY[1837] THEN P_VAL[1837] := rcnc_sync.P1837; END_IF;\nIF NOT P_DIRTY[2029] THEN P_VAL[2029] := rcnc_sync.P2029; END_IF;\nIF NOT P_DIRTY[2044] THEN P_VAL[2044] := rcnc_sync.P2044; END_IF;\nIF NOT P_DIRTY[2046] THEN P_VAL[2046] := rcnc_sync.P2046; END_IF;\nIF NOT P_DIRTY[2047] THEN P_VAL[2047] := rcnc_sync.P2047; END_IF;\nIF rcnc_sync.P1703 = 1.0 THEN\n\tP_VAL[1702] := rcnc_sync.P1702; (* easy-programming flowrate takes over *)\nEND_IF;\n(* SIMULATION -- the original plc_keys_fb, dropped with the Eckelmann softkeys and with it the\n   only writer of SimulationActive: the HMI's Start/Stop Simulation is a level, followed here\n   while no program runs (the original refused the change during a run too). P2047 tells the\n   .din cycles; DISPENSING, CALIBRATION and M_CODES skip injectors, pumps and cleaning. *)\nIF NOT NcProgramRunning AND SimulationActive <> SimulationSoftButton THEN\n\tSimulationActive := SimulationSoftButton;\n\tP_VAL[2047] := SEL(SimulationActive, 0.0, 1.0); P_DIRTY[2047] := TRUE;\nEND_IF;\n(* ...and HELD there: robocnc's copy is put back whenever it differs (a restarted robocnc, or\n   anything else that wrote it), and a PLC restart that happens to match the button still gets\n   written. No .init sets P2047: the PLC owns it, and an .init would win over the PLC. *)\nIF CncLinkOk AND conn_req_done AND NOT P_DIRTY[2047]\n   AND rcnc_sync.P2047 <> SEL(SimulationActive, 0.0, 1.0) THEN\n\tP_VAL[2047] := SEL(SimulationActive, 0.0, 1.0); P_DIRTY[2047] := TRUE;\nEND_IF;\n\n(* M-code dispatch: coil scan + ack replaces M_BEARBEITUNG_FB / H_BEARBEITUNG_FB\n   (H-functions: only empty H10 existed - dropped). Bits stay TRUE for the\n   M_CODES / SHUTTLE_TABLE sequencers, exactly like the original CASE. *)\n(* A machine without the pneumatic second Z stage (Cubotonic: its valves and limit\n   switches are not installed) must not hold M450/M500 for switches that never close:\n   there they are acknowledged at once, as the original did. *)\nm_disp(HOLD450 := SecondZStageInstalled, HOLD500 := SecondZStageInstalled);\nIF m_disp.M0 THEN M_M0_bit := TRUE; END_IF;\nIF m_disp.M1 THEN M_M1_bit := TRUE; END_IF;\nIF m_disp.M30 THEN M_M30_bit := TRUE; END_IF;\nIF m_disp.M100 THEN M_M100_bit := TRUE; END_IF;\nIF m_disp.M101 THEN M_M101_bit := TRUE; END_IF;\nIF m_disp.M200 THEN M_M200_bit := TRUE; END_IF;\nIF m_disp.M201 THEN M_M201_bit := TRUE; END_IF;\nIF m_disp.M250 THEN M_M250_bit := TRUE; END_IF;\nIF m_disp.M300 THEN M_M300_bit := TRUE; END_IF;\nIF m_disp.M301 THEN M_M301_bit := TRUE; END_IF;\nIF m_disp.M400 THEN M_M400_bit := TRUE; END_IF;\nIF m_disp.M401 THEN M_M401_bit := TRUE; END_IF;\n(* MAREX: M450 (second Z stage up) is acknowledged and does nothing -- its contahmi.pro has no\n   450 in M_BEARBEITUNG; only M500 moves the stage (down). *)\nIF m_disp.M500 THEN M_M500_bit := TRUE; END_IF;\nIF m_disp.M850 THEN M_M850_bit := TRUE; END_IF;\n(* PORT: one count per dispense. MAINTENANCE counts m_m850_bit_ -- the production counter and the\n   total (manual 7.1), the mixing-head and anti-drip operations (7.10, 9.1) -- but nothing in the\n   original project writes it, so the Eckelmann side must have. robocnc's M850 coil is high for\n   the M-code's few scans and low between parts: one rising edge per M850, as the counters need. *)\nm_m850_bit_ := m_disp.M850;\n(* PORT: a PART pour is an M850 from a production program. The block being executed tells which\n   program it belongs to (rcnc_sync.PROG_NO, the called subprogram's number inside one), so the\n   utility programs' pours -- 8051 cleaning, 8052 manual dispensing, 8053 maintenance, 8054 flow\n   regulation, which every production program calls -- are not parts. Decided when M850 rises and\n   held while it is high, so a program change during the pour cannot add a count. MAINTENANCE's\n   production counter counts this; the total, mixing-head and anti-drip counters count every pour. *)\nr_m850_part(CLK := m_disp.M850);\nIF r_m850_part.Q THEN\n    m850_is_part := NOT (rcnc_sync.PROG_NO >= PROG_CLEANING AND rcnc_sync.PROG_NO <= PROG_FLOW_REGULATION);\nEND_IF;\nm_m850_part_ := m_disp.M850 AND m850_is_part;\nIF m_disp.M851 THEN M_M851_bit := TRUE; END_IF;\nIF m_disp.M950 THEN M_M950_bit := TRUE; END_IF;\nIF m_disp.M999 THEN M_M999_bit := TRUE; END_IF;\n(* second-Z-stage ack on limit switch = the G152 replacement: the .din's\n   M450/M500 block until the stage is physically there (only when\n   SecondZStageInstalled; otherwise m_disp has acknowledged them already) *)\nIF m_disp.M450 AND SecondZStageUpperLimit THEN mr_stage(N := 450); END_IF;\nIF m_disp.M500 AND SecondZStageLowerLimit THEN mr_stage(N := 500); END_IF;\n\nIF m_disp.UNKNOWN_M <> 0 THEN\n\tMessageUnknownMFunction := TRUE; (* original raised NC error 303 *)\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "NC_LINK_OUT",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "PlcAxisLink",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF ST_PlcAxis",
+       "data": {
+        "baseType": {
+         "definition": "user-data-type",
+         "value": "ST_PlcAxis"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcLink",
+      "class": "external",
+      "type": {
+       "definition": "user-data-type",
+       "value": "ST_NcLink"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DriveEnableReq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "EnableRequiredMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PlcAxisAcc",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PlcAxisJog",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PlcAxisMapped",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "PlcAxisSpeed",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..15] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_DIRTY",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_VAL",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "SimulationActive",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "p_owned",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY[1024..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "1024..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "seed_done",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_flush",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_mt",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ax_cmd",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "RCNC_AXIS_CMD"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "i",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "flushed",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_seed",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "mt_cmd",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "u_pos",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "u_vel",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "run_dist",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "0.0",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "link_was_ok",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": "FALSE",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "jog_last",
+      "class": "local",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY[0..15] OF INT",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "INT"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..15"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "enable_req_last",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* PLC -> ROBOCNC, last in every scan: the drives' enable / disable / stop, the PLC axes' moves\n   (the dosing pumps, in the original's jog codes), and the parameters this PLC wrote (4 per scan;\n   all again when robocnc comes back). Machine independent: a new machine copies it as it is. *)\n(* drive enable edge -> axis commands (10 enable / 99 disable) for the\n   machine axis set *)\nIF DriveEnableReq <> enable_req_last THEN\n\tenable_req_last := DriveEnableReq;\n\tIF DriveEnableReq THEN NcLink.StopCode := 99; END_IF;   (* a later plain disable (Ready) is a 99 *)\n\tFOR i := 0 TO 6 DO\n\t\tIF GETBIT(EnableRequiredMask, i) THEN\n\t\t\tNcLink.CmdPending[i] := TRUE;\n\t\tEND_IF;\n\tEND_FOR;\n\t(* ...and the dosing pumps (PLC axes 3..7), which are not in EnableRequiredMask: robocnc\n\t   runs a motion task only on an enabled axis, so a pump left disabled never turned. *)\n\tFOR i := 3 TO 7 DO\n\t\tIF PlcAxisMapped[i] >= 0 THEN\n\t\t\tNcLink.CmdPending[PlcAxisMapped[i]] := TRUE;\n\t\t\tPlcAxisLink[i].LastCmd := SEL(DriveEnableReq, 99, 10);\n\t\tEND_IF;\n\tEND_FOR;\nEND_IF;\n(* SENT UNTIL ROBOCNC HAS IT. The command used to go out once, on the edge, and a write that\n   failed (the link still coming back after a robocnc restart, robocnc busy in its INIT) was\n   lost: the PLC then waited for drives nobody had asked for, and no homing followed. Each axis'\n   command is written again every scan until the write is answered. *)\nFOR i := 0 TO 15 DO\n\tIF NcLink.CmdPending[i] THEN\n\t\tax_cmd(ID := i, CMD := SEL(enable_req_last, NcLink.StopCode, 10));\n\t\tIF ax_cmd.DONE THEN NcLink.CmdPending[i] := FALSE; END_IF;\n\tEND_IF;\nEND_FOR;\n\n(* PLC-axis motion: dosing pumps / shuttle. Old contract P176+i target,\n   P208+i speed, P240+i acc + JOGKEY. Jog value 110 = \"go to target\" (move\n   abs), +/-1 = continuous run, 0 = stop. Axis map: old idx 8 (side-by-side\n   table) -> axis 6 (W); others identity 0..6. *)\n(* Dosing pumps (idx 3..7): MIXING_DOSING_MOTORS still publishes their speed and\n   acc on the old contract, P_VAL[208+i] / P_VAL[240+i], every scan (speed follows\n   the flow rate). Without this copy every pump run went out at speed 0. The table\n   (idx 8) is seeded from TableMotorSpeed/ACC above. *)\nFOR i := 3 TO 7 DO\n\tPlcAxisSpeed[i] := P_VAL[208 + i];\n\tPlcAxisAcc[i] := P_VAL[240 + i];\nEND_FOR;\n(* The dosing pumps run in PROFILE VELOCITY (CiA 402 mode 3): that is the MACHINE'S\n   configuration now, axes.json \"oper_mode\": 3 on each pump axis (RoboStudio: the axis card's\n   Motion Mode, then Apply). robocnc puts every axis in its configured mode at start-up and at\n   every drive connection, so the program does not request it. A program that needs the other\n   mode while running can still write AXIS_OPER_MODE_REQ (4250 + axis) itself. *)\n\n(* The Eckelmann PLC-axis jog codes: 0 stop; 111 (or +/-n) run at PlcAxisSpeed; 110 go to the\n   target P176+i; 102 PUMP RESET = zero the position counter, NO motion (the port ran every\n   pump after each program end with it). robocnc moves only on an enabled axis and only when\n   the command word CHANGES, so a repeated move word is preceded by a stop. A run is a\n   relative move far away in the run direction, at |speed| -- a negative MT_VEL is replaced\n   by the axis maximum. *)\nFOR i := 0 TO 15 DO\n\tIF PlcAxisJog[i] <> jog_last[i] THEN\n\t\tjog_last[i] := PlcAxisJog[i];\n\t\tPlcAxisLink[i].SeenBusy := FALSE;\n\t\tPlcAxisLink[i].Arrived := FALSE;\n\t\tPlcAxisLink[i].CmdSince := NcLink.Clock;\n\t\tIF PlcAxisMapped[i] >= 0 THEN\n\t\t\tIF PlcAxisJog[i] = 0 THEN\n\t\t\t\tax_cmd(ID := PlcAxisMapped[i], CMD := 80); (* stop *)\n\t\t\t\tPlcAxisLink[i].LastCmd := 80;\n\t\t\t\tNcLink.CmdPending[PlcAxisMapped[i]] := FALSE; (* this word now holds the stop *)\n\t\t\tELSIF PlcAxisJog[i] = 102 THEN\n\t\t\t\tPlcAxisLink[i].Zero := PlcAxisLink[i].Actual;\n\t\t\tELSE\n\t\t\t\t(* UNITS AT THE ROBOCNC BOUNDARY. A dosing pump axis (PLC axes 3..7) is set up in FULL\n\t\t\t\t   TURNS: 1.0 = one revolution, speed in rev/s. The PLC keeps its own units -- pump\n\t\t\t\t   degrees for targets and positions, rev/min for DosingMotorSpeed and its ramp -- so\n\t\t\t\t   they are converted here and nowhere else. Other PLC axes pass through. *)\n\t\t\t\tIF i >= 3 AND i <= 7 THEN\n\t\t\t\t\tu_pos := 1.0; u_vel := 1.0 / 6.0;\n\t\t\t\tELSE\n\t\t\t\t\tu_pos := 1.0; u_vel := 1.0;\n\t\t\t\tEND_IF;\n\t\t\t\tIF PlcAxisJog[i] = 110 THEN\n\t\t\t\t\tPlcAxisLink[i].Target := P_VAL[176 + i];\n\t\t\t\t\twp_mt(ADDR := 3000 + 2 * PlcAxisMapped[i], VALUE := (PlcAxisLink[i].Zero + PlcAxisLink[i].Target) / u_pos);\n\t\t\t\t\tmt_cmd := 101;                                   (* move absolute *)\n\t\t\t\tELSE\n\t\t\t\t\t(* FAR, in the run direction -- far in TIME, not a fixed distance: one day at the\n\t\t\t\t\t   commanded speed. A fixed 1.0E7 was 75 days at 1.5 rev/s once the pumps ran in\n\t\t\t\t\t   turns, robocnc read the profile's duration as an overflow and treated the move as\n\t\t\t\t\t   zero-length, and the pump stopped a second after it started. *)\n\t\t\t\t\trun_dist := ABS(PlcAxisSpeed[i]) / u_vel * 86400.0;\n\t\t\t\t\tIF run_dist < 1.0 THEN run_dist := 1.0; END_IF;\n\t\t\t\t\twp_mt(ADDR := 3000 + 2 * PlcAxisMapped[i],\n\t\t\t\t\t      VALUE := SEL(PlcAxisJog[i] < 0, run_dist, -run_dist));\n\t\t\t\t\tmt_cmd := 100;                                   (* move relative *)\n\t\t\t\tEND_IF;\n\t\t\t\twp_mt(ADDR := 3100 + 2 * PlcAxisMapped[i], VALUE := ABS(PlcAxisSpeed[i]) / u_vel);\n\t\t\t\twp_mt(ADDR := 3200 + 2 * PlcAxisMapped[i], VALUE := PlcAxisAcc[i] / u_vel);\n\t\t\t\tIF PlcAxisLink[i].LastCmd = mt_cmd THEN\n\t\t\t\t\tax_cmd(ID := PlcAxisMapped[i], CMD := 80);\n\t\t\t\tEND_IF;\n\t\t\t\tax_cmd(ID := PlcAxisMapped[i], CMD := mt_cmd);\n\t\t\t\tPlcAxisLink[i].LastCmd := mt_cmd;\n\t\t\t\tNcLink.CmdPending[PlcAxisMapped[i]] := FALSE; (* this word now holds the move *)\n\t\t\tEND_IF;\n\t\tEND_IF;\n\tEND_IF;\nEND_FOR;\n\n(* Every parameter this PLC has written is sent again whenever robocnc's link comes back: a\n   restarted robocnc starts from an empty bank and forgets which parameters are the PLC's,\n   and nothing here would otherwise write them again until they changed. *)\nIF CncLinkOk AND NOT link_was_ok THEN\n\tFOR i := 1024 TO 2047 DO\n\t\tIF p_owned[i] THEN P_DIRTY[i] := TRUE; END_IF;\n\tEND_FOR;\n\t(* the simulation flag always: a fresh robocnc already holding the same value would\n\t   otherwise never receive it, never count it as the PLC's, and let an .init replace it *)\n\tP_VAL[2047] := SEL(SimulationActive, 0.0, 1.0); P_DIRTY[2047] := TRUE;\n\t(* ...and the seed report: a restarted robocnc starts with PARAM_SEED_DONE (2067) at 0 and\n\t   defers every first build until it is told again, which a latched seed_done never did *)\n\tseed_done := FALSE;\nEND_IF;\nlink_was_ok := CncLinkOk;\n\n(* dirty P-parameter flush, max 4 per scan (writable bank P1024..2047) *)\nflushed := 0;\ni := 1024;\nWHILE (i < 2048) AND (flushed < 4) DO\n\tIF P_DIRTY[i] THEN\n\t\twp_flush(ADDR := 4300 + 2 * (i - 1024), VALUE := P_VAL[i]);\n\t\tIF wp_flush.DONE THEN P_DIRTY[i] := FALSE; p_owned[i] := TRUE; END_IF;\n\t\tflushed := flushed + 1;\n\tEND_IF;\n\ti := i + 1;\nEND_WHILE;\n\n(* A pass that walked the whole bank without finding anything dirty means everything this PLC\n   owns has reached robocnc. Latched once: it says \"the seed completed\", not \"nothing is dirty\n   right now\", so a later recipe write does not retract it. Told to robocnc so it can refuse to\n   take a FIRST build of a program whose coordinates we own until we have actually sent them --\n   the guarantee is then enforced on both sides rather than by assuming the operator is slow. *)\nIF (NOT seed_done) AND (flushed = 0) AND (i >= 2048) THEN\n\twp_seed(ADDR := 2067, VALUE := 1);\n\tIF wp_seed.DONE THEN seed_done := TRUE; END_IF;\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "NC_REFERENCE",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "NcLink",
+      "class": "external",
+      "type": {
+       "definition": "user-data-type",
+       "value": "ST_NcLink"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "DriveEnableReq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "EnableRequiredMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HomingDone",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcEnabledMask",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "SystemReady",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "RefPromptActive",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "RefDeclined",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HmiRefConfirm",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HmiRefCancel",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "homing_sent",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": "FALSE",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "home_pending",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": "FALSE",
+      "documentation": "the operator confirmed: HOME_ALL_REQ until robocnc takes it",
+      "debug": false
+     },
+     {
+      "name": "wp_home",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* SYSTEMREADY AND THE REFERENCE (after DRIVES): SystemReady once robocnc reports the required axes\n   enabled; then, with the machine not referenced (or after an emergency stop), the HMI's question\n   \"Reference the axes?\" (RefPromptActive) -- Yes asks robocnc to home (HOME_ALL_REQ 2068, in its\n   axis order), Cancel leaves it unreferenced until the next emergency stop or a lost robocnc. *)\nSystemReady := ((NcEnabledMask AND EnableRequiredMask) = EnableRequiredMask) AND CncLinkOk;\n\n(* reference run (manual 8.1: READY, then reference): once the required\n   axes report enabled after a READY press, reference the machine\n   (robocnc HOME ALL, EtherCAT-native; replaces REFPUNKT). Sent once per\n   enable; the GUI cannot do this while the PLC holds :5008 (S1.F.2\n   lockout), so it has to be here. *)\n(* ONE REQUEST, robocnc's order. Which axes home and in which order -- Z first, so the head is\n   lifted clear before anything travels sideways, then X and Y -- is robocnc's axis\n   configuration (axes.json home_order, beside the limits), as it was the NC's machine data on\n   the original. The PLC asks once (HOME_ALL_REQ 2068) when the drives are up and the machine\n   has never been referenced; the next Ready press asks again if that run did not finish. *)\n(* ASKED, NOT AUTOMATIC. With the drives enabled after a Ready hold and the machine not referenced,\n   the HMI asks \"Reference the axes?\" (RefPromptActive). Yes homes; Cancel leaves the machine\n   unreferenced -- nothing moves until it is (START_STOP refuses every program start while\n   HomingDone is FALSE) -- and the question is not asked again until an emergency stop has been\n   pressed (or robocnc was lost): release it, Ready to clear, hold Ready to enable, and it comes back. *)\nRefPromptActive := SystemReady AND DriveEnableReq AND (NOT HomingDone OR NcLink.RefAskAfterEmergency)\n                   AND NOT homing_sent AND NOT home_pending AND NOT RefDeclined;\nIF RefPromptActive AND HmiRefConfirm THEN home_pending := TRUE; NcLink.RefAskAfterEmergency := FALSE; END_IF;\nIF RefPromptActive AND HmiRefCancel THEN RefDeclined := TRUE; NcLink.RefAskAfterEmergency := FALSE; END_IF;\nHmiRefConfirm := FALSE;\nHmiRefCancel := FALSE;\nIF home_pending AND SystemReady AND DriveEnableReq THEN\n\twp_home(ADDR := 2068, VALUE := 1);\n\tIF wp_home.DONE THEN homing_sent := TRUE; home_pending := FALSE; END_IF;\nEND_IF;\nIF NOT (SystemReady AND DriveEnableReq) THEN homing_sent := FALSE; home_pending := FALSE; END_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "NC_START",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "NcLink",
+      "class": "external",
+      "type": {
+       "definition": "user-data-type",
+       "value": "ST_NcLink"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcFaultStop",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "HomingDone",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ButtonReset",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MachineStatus",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "MessageProgramStartFailed",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgramRunning",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgReq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgStopReq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ProgramStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ParamsVerified",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ParamsVerifyFailed",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_DIRTY",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_VAL",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF REAL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "REAL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "StartRefusedByAlarm",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NcProgVersionReq",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NC_RESET",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NC_INIT",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NC_GCODE_INIT",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NC_GCODE_READY",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NC_GCODE_ACTIVE",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "NC_FAULTY",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "START_PROGRAM",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "START_CLEANING",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "START_MANUAL_DISPENSING",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "START_MAINTENANCE",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "START_LINE_LOADING",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "START_CALIBRATION",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_PROG_CLEANING",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_PROG_MANUAL_DISPENSING",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_PROG_MAINTENANCE",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_PROG_LINE_LOADING",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_PROG_CALIBRATION",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "REG_PROGRAM_NUMBER_REQ",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "REG_PROGRAM_VERSION_REQ",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "params_pending",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "k",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "R_TRIG_StartAck",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "R_TRIG"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "F_TRIG_ProgramStopAck",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "F_TRIG"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_prog",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "wp_ver",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "st_req",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "RCNC_STATE_REQ"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "start_code",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "prog_no",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "TON_StartTimeout",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "reset_step",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "robocnc fault recovery: 0 idle, 1 RESET sent, 2 INIT sent",
+      "debug": false
+     },
+     {
+      "name": "TON_ResetTimeout",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "TON_InitTimeout",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* ROBOCNC RUNS THE START (START_STOP calls it, after deciding what may start): ProgramStart -- the\n   original's start codes, START_PROGRAM (1) the operator's program, the others the service\n   programs named in their P parameter -- becomes robocnc's build (PROGRAM_NUMBER_REQ, the init\n   version, STATE_REQ build), then run once robocnc reports it built. A start waits for every\n   parameter this PLC wrote and for PARAM_VERIFY, and needs a referenced machine. A fault, a\n   refusal or 240 s without a start drops the request (MessageProgramStartFailed). robocnc's FAULTY\n   and RESET are cleared by the operator's Reset or the next start (RESET, then INIT). *)\n(* -- robocnc state recovery --\n   robocnc comes up in RESET (0) after every start of its own and accepts nothing until\n   STATE_REQ goes INIT (1), so a power cycle left a machine the panel could not start. And\n   FAULTY (13) latches until STATE_REQ goes RESET (0) and then INIT (1). The Eckelmann reset key\n   cleared NC errors from the panel, so the operator's Reset, or simply asking for a start,\n   does the same here. RESET is held until robocnc has left FAULTY before INIT follows: two\n   writes one scan apart can land between two FSM samples and the RESET is never seen.\n   Gated on CncLinkOk because MachineStatus also reads 0 while the :5008 link is down. *)\nIF reset_step = 0 AND NcLink.StartStep = 0 AND CncLinkOk AND MachineStatus = NC_FAULTY AND NOT NcFaultStop\n   AND (ButtonReset OR ProgramStart <> 0) THEN\n\tst_req(REQ := NC_RESET);\n\treset_step := 1;\nELSIF reset_step = 0 AND NcLink.StartStep = 0 AND CncLinkOk AND MachineStatus = NC_RESET THEN\n\tst_req(REQ := NC_INIT);\n\treset_step := 2;\nELSIF reset_step = 1 AND (MachineStatus <> NC_FAULTY OR TON_ResetTimeout.Q) THEN\n\tst_req(REQ := NC_INIT);\n\treset_step := 2;\nELSIF reset_step = 2 AND MachineStatus <> NC_FAULTY AND MachineStatus <> NC_RESET THEN\n\treset_step := 0;\nELSIF reset_step = 2 AND TON_InitTimeout.Q THEN\n\tIF MachineStatus = NC_FAULTY THEN\n\t\tProgramStart := 0;\n\t\tMessageProgramStartFailed := TRUE;\n\tEND_IF;\n\treset_step := 0;                                     (* RESET: INIT again next scan *)\nEND_IF;\nTON_ResetTimeout(IN := (reset_step = 1), PT := t#3s);\nTON_InitTimeout(IN := (reset_step = 2), PT := t#5s);\n\n(* -- start sequencer: build -> ready -> run (level-held requests) -- *)\n(* A start waits until every parameter this PLC wrote has reached robocnc. The writes are\n   flushed at most 4 per scan, the start request goes out at once: robocnc then built and\n   checked the plan against the OLD value (8052 with P1835 = 1 while the button had set 2),\n   and the mismatch latched FAULTY. The original wrote its parameters synchronously. *)\n(* PORT: no start without a reference. The Eckelmann NC refused a program start on an\n   unreferenced machine (its start echo 241 asked for the reference run instead); robocnc keeps\n   its axes homed across an emergency stop, so the PLC refuses here: the request is dropped and\n   MessageHoming (\"Reference the system\") stays up until homing is done (manual 6.1, 8.1). *)\nIF ProgramStart <> 0 AND NcLink.StartStep = 0 AND NOT HomingDone THEN\n\tDROP_START_REQUESTS();\nEND_IF;\nparams_pending := FALSE;\nIF ProgramStart <> 0 AND NcLink.StartStep = 0 THEN\n\tFOR k := 1024 TO 2047 DO\n\t\tIF P_DIRTY[k] THEN params_pending := TRUE; EXIT; END_IF;\n\tEND_FOR;\nEND_IF;\n(* NOT ON PARAMETERS ROBOCNC DOES NOT HAVE (PARAM_VERIFY): a start waits until robocnc holds every\n   parameter this PLC owns, and is dropped -- said, not silent -- when that does not happen in 10 s *)\nIF ProgramStart <> 0 AND NcLink.StartStep = 0 AND ParamsVerifyFailed THEN\n\tDROP_START_REQUESTS();\n\tMessageProgramStartFailed := TRUE;\nEND_IF;\nIF ProgramStart <> 0 AND NcLink.StartStep = 0 AND reset_step = 0 AND MachineStatus <> NC_FAULTY\n   AND NOT NcProgramRunning AND NOT params_pending AND ParamsVerified THEN\n\t(* which program: the operator's, or the one a service request names in its P parameter *)\n\tstart_code := BYTE_TO_INT(ProgramStart);\n\tIF start_code = START_CLEANING THEN prog_no := REAL_TO_INT(P_VAL[P_PROG_CLEANING]);\n\tELSIF start_code = START_MANUAL_DISPENSING THEN prog_no := REAL_TO_INT(P_VAL[P_PROG_MANUAL_DISPENSING]);\n\tELSIF start_code = START_MAINTENANCE THEN prog_no := REAL_TO_INT(P_VAL[P_PROG_MAINTENANCE]);\n\tELSIF start_code = START_LINE_LOADING THEN prog_no := REAL_TO_INT(P_VAL[P_PROG_LINE_LOADING]);\n\tELSIF start_code = START_CALIBRATION THEN prog_no := REAL_TO_INT(P_VAL[P_PROG_CALIBRATION]);\n\tELSE prog_no := NcProgReq;                       (* START_PROGRAM: the operator's *)\n\tEND_IF;\n\tIF prog_no > 0 THEN\n\t\twp_prog(ADDR := REG_PROGRAM_NUMBER_REQ, VALUE := prog_no);\n\t\t(* THE INIT VERSION (PROGRAM_VERSION_REQ 2351): the HMI's choice for its own program, the\n\t\t   default (<n>.init) for the PLC's cleaning, manual and maintenance programs *)\n\t\twp_ver(ADDR := REG_PROGRAM_VERSION_REQ, VALUE := SEL(start_code = START_PROGRAM, 0, NcProgVersionReq));\n\t\tst_req(REQ := NC_GCODE_INIT);                    (* build *)\n\t\tNcLink.StartStep := 1;\n\tELSE\n\t\tProgramStart := 0;                               (* nothing selected *)\n\tEND_IF;\nEND_IF;\nIF NcLink.StartStep = 1 AND MachineStatus = NC_GCODE_READY AND ParamsVerified THEN   (* built, and still verified *)\n\tst_req(REQ := NC_GCODE_ACTIVE);                      (* run *)\n\tNcLink.StartStep := 2;\nEND_IF;\n(* A PROGRAM robocnc REFUSES fails the start the moment it says so: it does not load, or it names a\n   parameter outside P0..P2047 -- robocnc goes FAULTY with the reason and the row. Waiting out the\n   240 s below for a build that already failed left the operator with a Start that did nothing.\n   The next start, or Reset, clears FAULTY (the recovery above). *)\n(* A FAILED START DROPS ITS REQUEST TOO: the service requests (maintenance, calibration, ...) are level\n   bytes that START_STOP turns into ProgramStart every scan, so clearing ProgramStart alone re-armed the\n   failed request, and it ran later -- whenever the machine was next free, e.g. when the operator had\n   asked for something else meanwhile. *)\nIF (NcLink.StartStep = 1 OR NcLink.StartStep = 2) AND MachineStatus = NC_FAULTY THEN\n\tNcLink.StartStep := 0;\n\tDROP_START_REQUESTS();\n\tMessageProgramStartFailed := TRUE;\nEND_IF;\n(* Must outlast robocnc's auto_rebuild_timeout_s (cfg/system.json, 200 s here): a start whose\n   recipe changed rebuilds the plan first, and 8001 takes 83 s to build on the MCM20.1. *)\nTON_StartTimeout(IN := (NcLink.StartStep > 0), PT := t#240s);\nIF TON_StartTimeout.Q THEN\n\tNcLink.StartStep := 0;\n\tDROP_START_REQUESTS();\n\tMessageProgramStartFailed := TRUE;\nEND_IF;\n\n(* the failure is reported until the operator resets or a program starts *)\nIF ButtonReset THEN MessageProgramStartFailed := FALSE; StartRefusedByAlarm := FALSE; END_IF;\nR_TRIG_StartAck(CLK := NcProgramRunning);\nIF R_TRIG_StartAck.Q THEN\n\tMessageProgramStartFailed := FALSE;\n\tStartRefusedByAlarm := FALSE;\n\tNcLink.StartStep := 0;\n\tButtonReset := TRUE;\n\tDROP_START_REQUESTS();\nEND_IF;\n\nF_TRIG_ProgramStopAck(CLK := NcProgramRunning);\nIF F_TRIG_ProgramStopAck.Q THEN\n\tNcProgStopReq := FALSE;\n\tNcLink.StartStep := 0;\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "PANEL_OVR",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "SimulationActive",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "OVR_REQ",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "%QW312",
+      "initialValue": null,
+      "documentation": "HMI->PLC: the feed override wanted while simulation runs, 0..100 %",
+      "debug": false
+     },
+     {
+      "name": "ST_OVR",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "%QW384",
+      "initialValue": null,
+      "documentation": "PLC->HMI: the feed override this program set, % (100 outside simulation)",
+      "debug": false
+     },
+     {
+      "name": "wp_ovr",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "WRITE_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "want",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": "100",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "written",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": "100",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "req_l",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "sim_l",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* THE PANEL'S FEED OVERRIDE, IN SIMULATION ONLY (user, 2026-11-20). While simulation runs the panel\n   shows an override button (\"x %\") with a 0..100 % slider; robocnc's override (OVERRIDE_REQ 2050)\n   follows it. Simulation starts at 100 % whatever the slider said last, and its end puts 100 % back.\n   Written only on a change, so RoboStudio's own override is left alone outside simulation. *)\nIF SimulationActive AND NOT sim_l THEN\n\twant := 100;\n\treq_l := OVR_REQ;\nELSIF SimulationActive AND OVR_REQ <> req_l THEN\n\treq_l := OVR_REQ;\n\twant := LIMIT(0, OVR_REQ, 100);\nELSIF NOT SimulationActive AND sim_l THEN\n\twant := 100;\nEND_IF;\nsim_l := SimulationActive;\n(* written until robocnc has it *)\nIF want <> written AND CncLinkOk THEN\n\twp_ovr(ADDR := 2050, VALUE := want);\n\tIF wp_ovr.DONE THEN written := want; END_IF;\nEND_IF;\nST_OVR := want;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "PARAM_VERIFY",
+   "pouType": "program",
+   "interface": {
+    "variables": [
+     {
+      "name": "p_owned",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY[1024..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "1024..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "seed_done",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "P_DIRTY",
+      "class": "external",
+      "type": {
+       "definition": "array",
+       "value": "ARRAY [0..2047] OF BOOL",
+       "data": {
+        "baseType": {
+         "definition": "base-type",
+         "value": "BOOL"
+        },
+        "dimensions": [
+         {
+          "dimension": "0..2047"
+         }
+        ]
+       }
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "CncLinkOk",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ProgramStart",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BYTE"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ParamsVerified",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "ParamsVerifyFailed",
+      "class": "external",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "rd_count",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "READ_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "rd_seed",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "READ_PARAM_INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "k",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "owned",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "dirty",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "lost",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "BOOL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "TON_Lost",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "TON_Wait",
+      "class": "local",
+      "type": {
+       "definition": "user-data-type",
+       "value": "TON"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* PARAM_VERIFY -- NO PROGRAM STARTS ON PARAMETERS ROBOCNC DOES NOT HAVE (robocnc 1.9.0).\n   A program reads the PLC's parameters (positions, heights, strokes: 8001's dispensing height is\n   worked out from P1818 and P1851) when it is built and run. The PLC used to trust that every write\n   it had made had arrived; a robocnc that restarted unnoticed, or lost a write, ran on zeros -- a\n   dispensing height of 0 is the table. So, while a start is asked for:\n     robocnc says how many different PLC parameters it holds (PLC_PARAM_COUNT 1192) and whether the\n     PLC said it sent them all (PLC_SEED_SEEN 1193); with nothing left to send here, it must hold at\n     least as many as this PLC owns (p_owned) -> ParamsVerified, START_STOP's gate.\n   Fewer for half a second: robocnc lost them -> every owned parameter is sent again and the seed\n   reported again. Not verified 10 s after the start was asked for -> ParamsVerifyFailed: START_STOP\n   drops the start and says so (MessageProgramStartFailed). robocnc refuses a build or a run of its\n   own while a linked PLC has not reported the seed (NC_REFUSED_PLC_PARAMS), so both sides hold. *)\nParamsVerified := FALSE;\nlost := FALSE;\nIF CncLinkOk AND ProgramStart <> 0 THEN\n\trd_count(ADDR := 1192);\n\trd_seed(ADDR := 1193);\n\towned := 0;\n\tdirty := FALSE;\n\tFOR k := 1024 TO 2047 DO\n\t\tIF p_owned[k] THEN owned := owned + 1; END_IF;\n\t\tIF P_DIRTY[k] THEN dirty := TRUE; END_IF;\n\tEND_FOR;\n\tIF rd_count.VALID AND rd_seed.VALID AND NOT dirty THEN\n\t\tlost := seed_done AND rd_count.VALUE < owned;\n\t\tParamsVerified := rd_seed.VALUE = 1 AND rd_count.VALUE >= owned;\n\tEND_IF;\nEND_IF;\nTON_Lost(IN := lost, PT := t#500ms);\nIF TON_Lost.Q THEN\n\tFOR k := 1024 TO 2047 DO\n\t\tIF p_owned[k] THEN P_DIRTY[k] := TRUE; END_IF;\n\tEND_FOR;\n\tseed_done := FALSE;\nEND_IF;\nTON_Wait(IN := CncLinkOk AND ProgramStart <> 0 AND NOT ParamsVerified, PT := t#10s);\nParamsVerifyFailed := TON_Wait.Q;"
+   },
+   "documentation": ""
+  }
+ ],
+ "dataTypes": [
+  {
+   "name": "ST_PlcAxis",
+   "derivation": "structure",
+   "variable": [
+    {
+     "name": "Zero",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     }
+    },
+    {
+     "name": "Actual",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     }
+    },
+    {
+     "name": "LastCmd",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     }
+    },
+    {
+     "name": "Target",
+     "type": {
+      "definition": "base-type",
+      "value": "REAL"
+     }
+    },
+    {
+     "name": "SeenBusy",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     }
+    },
+    {
+     "name": "Arrived",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     }
+    },
+    {
+     "name": "CmdSince",
+     "type": {
+      "definition": "base-type",
+      "value": "TIME"
+     }
+    }
+   ]
+  },
+  {
+   "name": "ST_NcLink",
+   "derivation": "structure",
+   "variable": [
+    {
+     "name": "Clock",
+     "type": {
+      "definition": "base-type",
+      "value": "TIME"
+     }
+    },
+    {
+     "name": "StopCode",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "initialValue": {
+      "simpleValue": {
+       "value": "99"
+      }
+     }
+    },
+    {
+     "name": "StartStep",
+     "type": {
+      "definition": "base-type",
+      "value": "INT"
+     }
+    },
+    {
+     "name": "RefAskAfterEmergency",
+     "type": {
+      "definition": "base-type",
+      "value": "BOOL"
+     }
+    },
+    {
+     "name": "CmdPending",
+     "type": {
+      "definition": "array",
+      "value": "ARRAY [0..15] OF BOOL",
+      "data": {
+       "baseType": {
+        "definition": "base-type",
+        "value": "BOOL"
+       },
+       "dimensions": [
+        {
+         "dimension": "0..15"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ ],
+ "globalVariables": [
+  {
+   "name": "PF_IDX_NCISTPOS_0",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "0",
+   "documentation": "[CONSTANT] 1. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCISTPOS_1",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1",
+   "documentation": "[CONSTANT] 2. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCISTPOS_2",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "2",
+   "documentation": "[CONSTANT] 3. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCISTPOS_3",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "3",
+   "documentation": "[CONSTANT] 4. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCISTPOS_4",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "4",
+   "documentation": "[CONSTANT] 5. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCISTPOS_5",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "5",
+   "documentation": "[CONSTANT] 6. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCPLUSMODPOS_0",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "16",
+   "documentation": "[CONSTANT] 1. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCPLUSMODPOS_1",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "17",
+   "documentation": "[CONSTANT] 2. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCPLUSMODPOS_2",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "18",
+   "documentation": "[CONSTANT] 3. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCPLUSMODPOS_3",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "19",
+   "documentation": "[CONSTANT] 4. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCPLUSMODPOS_4",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "22",
+   "documentation": "[CONSTANT] 5. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_NCPLUSMODPOS_5",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "23",
+   "documentation": "[CONSTANT] 6. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_MODPOS_0",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "160",
+   "documentation": "[CONSTANT] 1. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_MODPOS_1",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "161",
+   "documentation": "[CONSTANT] 2. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_MODPOS_2",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "162",
+   "documentation": "[CONSTANT] 3. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_MODPOS_3",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "163",
+   "documentation": "[CONSTANT] 4. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_MODPOS_4",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "164",
+   "documentation": "[CONSTANT] 5. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_MODPOS_5",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "165",
+   "documentation": "[CONSTANT] 6. Achse",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PF_IDX_PROGNR",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "512",
+   "documentation": "[CONSTANT]",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "HomingDone",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "Referencing",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "P_VAL",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..2047] OF REAL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..2047"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "P-field mirror of the RoboCNC parameter space (PORT_DECISIONS.md); P<1024 fed from NC each scan; P1024+ writable",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "P_DIRTY",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..2047] OF BOOL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..2047"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "dirty flags for P_VAL; PLC_PRG flushes max 4/scan to holding 4300+2*(P-1024)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PlcAxisJog",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF INT",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "replaces D1_084_PLC_JOGKEY_SI; 110 = go-to-target (abs) with P_VAL[176+i]; +/-n = continuous run; 0 = stop",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PlcAxisSpeed",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF REAL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "PLC-axis speed (old P208+i contract) flushed to MT_VEL 3100+2*axis",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PlcAxisAcc",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF REAL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "PLC-axis accel (old P240+i contract) flushed to MT_ACC 3200+2*axis",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgramRunning",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "NC program running (RoboCNC PROGRAM_RUNNING reg 1010); replaces DB1_NC2SPS_NC_PROGRAMM_LAEUFT_BIT",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgStoppedB",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "NOT running; replaces DB1_NC2SPS_PROGRAMMSTOP_B reads",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgStopReq",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "PLC stop request latch; START_STOP sends STATE_REQ 12",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgStopReqB",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "legacy alias (old SPS2NC_PROGRAMMSTOP_B); unused after rewrite",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgStartEcho",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "legacy alias (old NC2SPS_PROGRAMMSTART_B incl magic 241); unused after rewrite",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgStartReqB",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "legacy alias (old SPS2NC_PROGRAMMSTART_B); unused after rewrite",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcFeedEnableReq",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "legacy alias (old SPS2NC_VORSCHUBFREIGABE_BIT); feed enable is RoboCNC-native",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcAxisMovingW",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "axis-moving word (MOTION_ACTIVE reg 1012 as 0/1); replaces DB1_NC2SPS_ACHSE_FAEHRT_W",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcTargetReachedW",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "per-axis motion-done mask from AXES_STATUS b2; replaces D1_135_TARGET_REACHED_W",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcReady",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "link up + machine FSM in a commandable state; replaces D1_128_0_NC_Ready1_bit",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcHomedMask",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "per-axis homed mask from AXES_STATUS b1; replaces D1_177_HOMING_DONE_W",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcHomingActiveW",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "kept for source compatibility (RoboCNC homing is EtherCAT-native)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcEnabledMask",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "per-axis enabled mask from AXES_STATUS b0",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcFaultMask",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "per-axis DS402 fault mask from AXES_STATUS b11",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgReq",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "8001",
+   "documentation": "[RETAIN] the operator's program (.din), picked on the panel or in RoboStudio (HMI_MIRROR: %QW303 + %QW311)",
+   "debug": false,
+   "retain": true,
+   "group": "NC_Link"
+  },
+  {
+   "name": "MachineStatus",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "RoboCNC MACHINE_STATUS reg 1000 (0 RESET..13 FAULTY)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "CncLinkOk",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "RCNC_NC_SYNC round-trip health",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "CurrentRow",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "executing .din row (reg 1008)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "ProgramRunningNum",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "loaded program number (reg 1002)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DriveEnableReq",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "READY-button drive enable intent; PLC_PRG sync-out sends per-axis enable/disable",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcCatalogSeq",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc program catalogue: +1 when the program list changes (RCNC_CATALOG)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgCount",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "how many programs robocnc holds (8000..8999)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgList",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..99] OF INT",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..99"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the programs robocnc holds, ascending; NcProgCount of them (the HMI's program picker)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgQuery",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the program whose init versions the HMI wants listed (HMI %QW309)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcVersionProg",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the program the version list is for (0: none yet)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcVersionCount",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "its init versions; version 0 is the default <n>.init",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcVersionWords",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..191] OF INT",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..191"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the version names, 6 words each, 2 characters a word (high byte first)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcVersionActive",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the init version the last program start took",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgVersionReq",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "0",
+   "documentation": "[RETAIN] its init version index, 0 = default (HMI_MIRROR: %QW310 + %QW311)",
+   "debug": false,
+   "retain": true,
+   "group": "NC_Link"
+  },
+  {
+   "name": "RefPromptActive",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the HMI asks \"Reference the axes?\": drives enabled after a Ready hold, not referenced, not declined",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "RefDeclined",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the operator cancelled the reference question; asked again only after an emergency stop (or a lost robocnc)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "HmiRefConfirm",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI pulse: reference the axes (CMD b7)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "HmiRefCancel",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI pulse: not now (CMD b8)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "MessageUnknownMFunction",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "unknown M-code seen by M_DISPATCH (original SPSERROR 303)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "MessageProgramStartFailed",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "START_STOP build/run sequence timed out (30 s)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "programm_ende_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M0_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M1_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M30_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M50_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M51_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M65_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M66_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M100_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M101_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M105_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M106_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M110_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M111_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M200_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M201_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M222_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M250_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M251_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M300_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M301_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M400_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M401_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M450_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M500_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M501_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M600_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M601_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M666_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M701_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M700_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M800_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M801_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M850_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M851_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M900_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M901_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M950_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M999_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "M_M1000_bit",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "SimulationActive",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "NC_Link"
+  },
+  {
+   "name": "m_m850_bit_",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "MCodes"
+  },
+  {
+   "name": "m_m850_part_",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "M850 from a production program (not 8051-8054): the production counter's input",
+   "group": "MCodes"
+  },
+  {
+   "name": "SystemReady",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "documentation": "",
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcFaultStop",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc: a fault has stopped the machine, until a Reset (FAULT_STOP_ACTIVE 1180)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcFaultDrive",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc: per axis, the drive reports a fault, latched until a Reset (1181)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcFaultComm",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc: per axis, the drive does not answer on the fieldbus, latched until a Reset (1182)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcFaultEnable",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc: per axis, it left Operation Enabled with nobody asking, latched until a Reset (1183)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcFaultPolicy",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc: b0 a fault stops everything during a program, b1 in manual (RoboStudio, machine.json; 1184)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "ExtFaultReq",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "this program stops the machine through robocnc: a DAQ card lost (EXT_FAULT_REQ 2355)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevCmdSeq",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevCmdSeq",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevCmd",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevCmd",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevCmdAxis",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevCmdAxis",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevAxisCount",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevAxisCount",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevJogAlive",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevJogAlive",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevTeachSeq",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevTeachSeq",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevTeachId",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevTeachId",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevAckSeq",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevAckSeq",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevResult",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevResult",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevTeachAck",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevTeachAck",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevTeachResult",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevTeachResult",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevCmdTarget",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevCmdTarget",
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevCmdVel",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevCmdVel",
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevCmdAcc",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevCmdAcc",
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevTeachX",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevTeachX",
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevTeachY",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevTeachY",
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevTeachZ",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevTeachZ",
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevJogDir",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF INT",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevJogDir, per axis",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevJogTarget",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF REAL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevJogTarget, per axis",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevJogVel",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF REAL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevJogVel, per axis",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "DevJogAcc",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF REAL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "REAL"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "HMI developer page mailbox (DEVCNC): DevJogAcc, per axis",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "p_owned",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [1024..2047] OF BOOL",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "BOOL"
+     },
+     "dimensions": [
+      {
+       "dimension": "1024..2047"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the P parameters this PLC has written to robocnc (PLC_PRG's flush); PARAM_VERIFY counts them",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "PlcAxisLink",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..15] OF ST_PlcAxis",
+    "data": {
+     "baseType": {
+      "definition": "user-data-type",
+      "value": "ST_PlcAxis"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..15"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "Internal (NC_LINK_IN / NC_LINK_OUT): per PLC axis -- Zero: the position the last pump reset (jog 102) took as zero; Actual: robocnc's position in PLC units (pump degrees), before the zero; LastCmd: the last command word sent (80 stop, 100 / 101 move, 10 / 99 enable); Target: the current go-to-target's (jog 110); SeenBusy: robocnc's done bit dropped since the command; Arrived: the move has run, P(16 + axis) reports the target; CmdSince: NcLink.Clock when the command was given",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcLink",
+   "type": {
+    "definition": "user-data-type",
+    "value": "ST_NcLink"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "Internal (the link programs' shared state) -- Clock: now, by NC_LINK_IN's free-running clock (restarts every 20 days); StopCode: what a dropped enable sends (99 disable, 81 after an emergency stop: braked, the reference kept); StartStep: NC_START's sequence (0 idle, 1 build requested, 2 run requested); RefAskAfterEmergency: an emergency stop was pressed, the HMI asks \"Reference the axes?\" again; CmdPending: per robocnc axis, an enable / disable / stop robocnc has not taken yet",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "seed_done",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "every parameter this PLC owns has reached robocnc and PARAM_SEED_DONE was told (PLC_PRG); PARAM_VERIFY clears it to send them all again",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "ParamsVerified",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc holds every parameter this PLC owns (PARAM_VERIFY): a program may start",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "ParamsVerifyFailed",
+   "type": {
+    "definition": "base-type",
+    "value": "BOOL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc did not get the PLC's parameters back within 10 s of a start request (PARAM_VERIFY): the start is dropped",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgListed",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..6] OF INT",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..6"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc catalogue: bit i of word i/16 = NcProgList[i] is listed on the operator panel (cfg/programs.json)",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "NcProgNames",
+   "type": {
+    "definition": "array",
+    "value": "ARRAY [0..799] OF INT",
+    "data": {
+     "baseType": {
+      "definition": "base-type",
+      "value": "INT"
+     },
+     "dimensions": [
+      {
+       "dimension": "0..799"
+      }
+     ]
+    }
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "robocnc catalogue: the programs' names, 8 words each (UTF-8, 2 bytes a word, high first): name i = [8i..8i+7]",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "HmiToolX",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the active tool's X offset (robocnc), for the panel",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "HmiToolY",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the active tool's Y offset (robocnc), for the panel",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "HmiToolZ",
+   "type": {
+    "definition": "base-type",
+    "value": "REAL"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the active tool's Z offset (robocnc), for the panel",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "HmiToolNo",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": null,
+   "documentation": "the active tool's number (robocnc), for the panel",
+   "debug": false,
+   "group": "NC_Link"
+  },
+  {
+   "name": "AXIS_JOG_STOP",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "0",
+   "documentation": "robocnc PLC axis command (PlcAxisJog): stop. Constant: do not write.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "AXIS_PUMP_RESET",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "102",
+   "documentation": "robocnc PLC axis command: pump reset -- the position counter to zero, no motion. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "AXIS_JOG_TO_TARGET",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "110",
+   "documentation": "robocnc PLC axis command: go to the target (P_AXIS_TARGET + axis). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "AXIS_JOG_RUN",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "111",
+   "documentation": "robocnc PLC axis command: run at the axis speed (P_AXIS_SPEED + axis). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AXIS_TARGET",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "176",
+   "documentation": "robocnc parameter bank of the PLC axes: P<176 + axis> = the target position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AXIS_SPEED",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "208",
+   "documentation": "robocnc parameter bank of the PLC axes: P<208 + axis> = the speed. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AXIS_ACC",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "240",
+   "documentation": "robocnc parameter bank of the PLC axes: P<240 + axis> = the acceleration. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "NC_RESET",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "0",
+   "documentation": "robocnc machine state (MachineStatus, STATE_REQ): RESET. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "NC_INIT",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1",
+   "documentation": "robocnc machine state: INIT. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "NC_GCODE_INIT",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "5",
+   "documentation": "robocnc machine state: GCODE_INIT (build the program). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "NC_GCODE_READY",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "6",
+   "documentation": "robocnc machine state: GCODE_READY (built). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "NC_GCODE_ACTIVE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "7",
+   "documentation": "robocnc machine state: GCODE_ACTIVE (run). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "NC_OPER_STOP",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "12",
+   "documentation": "robocnc machine state request: OPER_STOP (stop the program). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "NC_FAULTY",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "13",
+   "documentation": "robocnc machine state: FAULTY (until RESET then INIT). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "START_PROGRAM",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1",
+   "documentation": "ProgramStart code: the operator's program (NcProgReq). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "START_CLEANING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "17",
+   "documentation": "ProgramStart code: cleaning (the program in P514). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "START_MANUAL_DISPENSING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "33",
+   "documentation": "ProgramStart code: manual dispensing (P516). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "START_MAINTENANCE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "49",
+   "documentation": "ProgramStart code: to the maintenance position (P518). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "START_LINE_LOADING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "81",
+   "documentation": "ProgramStart code: line loading (P522). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "START_CALIBRATION",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "97",
+   "documentation": "ProgramStart code: calibration (P524). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_PROG_CLEANING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "514",
+   "documentation": "P parameter holding the cleaning program's number (8051). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_PROG_MANUAL_DISPENSING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "516",
+   "documentation": "P parameter holding the manual dispensing program's number (8052). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_PROG_MAINTENANCE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "518",
+   "documentation": "P parameter holding the maintenance program's number (8053). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_PROG_LINE_LOADING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "522",
+   "documentation": "P parameter holding the line loading program's number (8056). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_PROG_CALIBRATION",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "524",
+   "documentation": "P parameter holding the calibration program's number (8055/8057). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_MANUAL_DISPENSING_STEP",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1835",
+   "documentation": "P parameter: the manual dispensing step (8052 and the panel's button). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_CLEANING_ACTIVE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "2029",
+   "documentation": "P parameter: 1 while a running program cleans (its G21 sets and clears it). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "REG_PROGRAM_NUMBER_REQ",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "2051",
+   "documentation": "robocnc register: the program to build and run (PROGRAM_NUMBER_REQ). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "REG_PROGRAM_VERSION_REQ",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "2351",
+   "documentation": "robocnc register: its init version (PROGRAM_VERSION_REQ). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_HEAD_X",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "16",
+   "documentation": "P parameter: the head's actual X (robocnc keeps it there). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_HEAD_Y",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "17",
+   "documentation": "P parameter: the head's actual Y. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_HEAD_Z",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "18",
+   "documentation": "P parameter: the head's actual Z. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AT_CLEANING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1804",
+   "documentation": "P parameter: 1 while the head is at the cleaning position (for the programs). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AT_HOME",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1805",
+   "documentation": "P parameter: 1 while the head is at the home position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AT_WASTE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1814",
+   "documentation": "P parameter: 1 while the head is at the waste position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AT_MAINTENANCE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1824",
+   "documentation": "P parameter: 1 while the head is at the maintenance position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AT_MANUAL_DISPENSING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1834",
+   "documentation": "P parameter: 1 while the head is at the manual dispensing position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AT_CALIBRATION",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1844",
+   "documentation": "P parameter: 1 while the head is at the calibration position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_CLEANING_DURATION",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "2018",
+   "documentation": "P parameter: the cleaning's total time [s] (the cleaning program waits that long). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_AXIS_POS",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "16",
+   "documentation": "P parameter base of the axes' actual positions: P (16 + PLC axis) -- X 16, Y 17, Z 18, the pumps from 19. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "PROG_CLEANING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "8051",
+   "documentation": "NC program number: the cleaning program. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "PROG_MANUAL_DISPENSING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "8052",
+   "documentation": "NC program number: manual dispensing. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "PROG_MAINTENANCE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "8053",
+   "documentation": "NC program number: going to the maintenance position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "PROG_LINE_LOADING",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "8056",
+   "documentation": "NC program number: line loading (at the waste position). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "PROG_CALIBRATION",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "8057",
+   "documentation": "NC program number: going to the calibration position. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_MANUAL_DISPENSING_MODE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1837",
+   "documentation": "P parameter: manual dispensing's mode for 8052 -- 0 fixed (a press), 1 trajectory (the button held 3 s). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_CLEANING_BY_BUTTON",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "2044",
+   "documentation": "P parameter: 1 = the cleaning was asked for by the cleaning button (the G-code programs reset it). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_TOOL_LENGTH",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1710",
+   "documentation": "P parameter: the tool length (nozzle + mixing chamber) robocnc compensates. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_SAFE_Z",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1800",
+   "documentation": "P parameter: the safe Z the programs retract to (= the home Z). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_HOME_Z",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1818",
+   "documentation": "P parameter: the home position's Z. Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_WORKPIECE_SPACE",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "1705",
+   "documentation": "P parameter: the workpiece space the programs pour in -- 1 S1, else S2 (the shuttle table's surface). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "P_TABLE_LEVEL",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "2046",
+   "documentation": "P parameter: the workpiece space's Z offset (S1ZOffset / S2ZOffset). Constant.",
+   "debug": false,
+   "group": "Constants"
+  },
+  {
+   "name": "PROG_FLOW_REGULATION",
+   "type": {
+    "definition": "base-type",
+    "value": "INT"
+   },
+   "location": "",
+   "initialValue": "8054",
+   "documentation": "NC program number: flow regulation (every production program calls it). Constant.",
+   "debug": false,
+   "group": "Constants"
+  }
+ ]
+}

@@ -11,6 +11,7 @@
  *   - Port uses `configurations` (plural), IPC uses `configuration` (singular)
  */
 
+import { type GraftArchive, graftLibraryContent } from '../../../backend/shared/library/graft-library-content'
 import { preprocessPous } from '../../../backend/shared/utils/PLC/preprocess-pous'
 import type {
   CompileLibraryArgs,
@@ -27,7 +28,6 @@ import type {
   DebugCompileResult,
   PLCPou,
   PLCProjectData,
-  PLCVariable,
   Result,
 } from '../../shared/ports/types'
 
@@ -99,69 +99,19 @@ function decodeMessage(raw: unknown): string {
 }
 
 /**
- * Graft any library-supplied C/C++ function blocks into the
- * project's POU list before the standard preprocessor runs.  Each
- * library archive's `cppBlocks` entry becomes a synthesized
- * `PLCPou` with `body.language: 'cpp'` — from there it flows
- * through `preprocessPous` exactly like a user-defined C++ POU
- * (ST stub generation, `originalCppPous` sidecar, downstream
- * `c_blocks.h` / `c_blocks_code.cpp` generation, link-time
- * resolution).  Strucpp never sees the C++ — it sees the
- * generated ST stub that calls into `c_blocks.h` externs.
- *
- * **Renaming**: each block's name is prefixed with the library's
- * manifest name (`${library_name}__${block_name}`) so two
- * different libraries can ship a block called `Foo` without
- * collision, and so a consumer's user-defined POU can also be
- * called `Foo` without colliding with a library's block.  The
- * editor's library-tree picker surfaces the prefixed name, so the
- * user authors their ST against that name directly — no parse +
- * rewrite of the user's source.
- *
- * Symbol-level renames inside the synthesized POU (the struct
- * `<NAME>_VARS`, the C functions `<name>_setup` /
- * `<name>_loop`) happen automatically because
- * `generateCppSTCode` / `generateCBlocksHeader` /
- * `generateCBlocksCode` all derive their names from
- * `pou.name`.
+ * Graft what the project's enabled libraries ship into the project before the standard
+ * preprocessor runs (graftLibraryContent): their C/C++ function blocks -- each a synthesized
+ * `PLCPou` with `body.language: 'cpp'`, which then flows through `preprocessPous` exactly like
+ * a user-defined C++ POU (ST stub, `originalCppPous` sidecar, `c_blocks.h` /
+ * `c_blocks_code.cpp`) -- and the Structured Text POUs, data types and globals they ship as
+ * source. Everything keeps its PLAIN name (CoDeSys parity: ported ST calls WRITE_PARAM_INT the
+ * way it calls TON); a project POU, type or global of the same name wins.
  */
 function injectLibraryCppBlocks(projectData: PLCProjectData, archives: StlibArchiveDTO[]): PLCProjectData {
-  if (!projectData.libraries || projectData.libraries.length === 0) return projectData
-
-  const enabledNames = new Set(projectData.libraries.map((ref) => ref.name))
-  // PLAIN block names, not `<library>__<name>`: the point of a cpp-block
-  // library is CoDeSys-style parity — ported ST calls WRITE_PARAM_INT the
-  // way it calls TON, and a prefixed type name would force every consumer
-  // to rewrite its declarations.  Collisions are handled instead of
-  // prevented: a project POU with the same name WINS and the library copy
-  // is skipped, so a project that still carries its own generated copies
-  // (or deliberately shadows one block) compiles unchanged.
-  const projectPouNames = new Set(projectData.pous.map((p) => p.name.toUpperCase()))
-  const synthesized: PLCPou[] = []
-
-  for (const archive of archives) {
-    if (!archive.cppBlocks || archive.cppBlocks.length === 0) continue
-    if (!enabledNames.has(archive.manifest.name)) continue
-    for (const block of archive.cppBlocks) {
-      if (projectPouNames.has(block.name.toUpperCase())) continue
-      // `variables` rides through the StlibArchiveDTO as `unknown[]`
-      // by design — the manifest layer doesn't know our PLCVariable
-      // shape.  The on-disk archives are produced by THIS editor's
-      // own save pipeline using the same PLCVariable type, so the
-      // narrowing here matches reality at runtime.
-      synthesized.push({
-        name: block.name,
-        pouType: 'function-block',
-        interface: { variables: block.variables as PLCVariable[] },
-        body: { language: 'cpp', value: block.code },
-        documentation: block.documentation ?? '',
-      })
-    }
-  }
-
-  if (synthesized.length === 0) return projectData
-
-  return { ...projectData, pous: [...projectData.pous, ...synthesized] }
+  // C/C++ blocks, and the ST POUs, data types and globals a library ships as source: all under
+  // their PLAIN names, a same-named project POU / type / global winning (see
+  // graftLibraryContent, shared with the headless build).
+  return graftLibraryContent(projectData as never, archives as GraftArchive[]).projectData as unknown as PLCProjectData
 }
 
 /** Best-effort stage inference from compiler log messages. */

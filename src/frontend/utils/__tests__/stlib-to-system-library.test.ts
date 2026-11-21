@@ -117,7 +117,7 @@ describe('stlibToSystemLibrary — function blocks', () => {
 })
 
 describe('stlibToSystemLibrary — cppBlocks branch', () => {
-  it('surfaces each library cpp block under the prefixed name', () => {
+  it('surfaces each library cpp block under its plain name', () => {
     const archive: StlibArchiveDTO = {
       manifest: {
         name: 'mylib',
@@ -147,7 +147,7 @@ describe('stlibToSystemLibrary — cppBlocks branch', () => {
 
     expect(lib.pous).toHaveLength(1)
     const block = lib.pous[0]
-    expect(block.name).toBe('mylib__Servo')
+    expect(block.name).toBe('Servo')
     expect(block.type).toBe('function-block')
     expect(block.language).toBe('cpp')
     expect(block.body).toBe('void setup(){}void loop(){}')
@@ -220,5 +220,47 @@ describe('stlibsToSystemLibraries', () => {
 
   it('returns an empty list for an empty input', () => {
     expect(stlibsToSystemLibraries([])).toEqual([])
+  })
+})
+
+describe('stlibToSystemLibrary — ST POUs carried as source', () => {
+  it('lists functions and function blocks, not programs', () => {
+    const archive = {
+      ...makeArchive(),
+      stPous: [
+        {
+          name: 'P_SET',
+          pouType: 'function',
+          interface: {
+            returnType: 'BOOL',
+            variables: [
+              { name: 'N', class: 'input', type: { value: 'INT' } },
+              { name: 'L', class: 'local', type: { value: 'INT' } },
+              { name: 'X', class: 'inOut' },
+            ],
+          },
+          documentation: 'sets a parameter',
+        },
+        { name: 'F_NOTYPE', pouType: 'function' },
+        { name: 'FB_A', pouType: 'function-block', interface: { variables: [{ name: 'Q', class: 'output', type: { value: 'BOOL' } }] } },
+        { name: 'NC_LINK_IN', pouType: 'program' },
+        { pouType: 'function' },
+      ],
+    } as StlibArchiveDTO
+    const lib = stlibToSystemLibrary(archive)
+    const byName = new Map(lib.pous.map((p) => [p.name, p]))
+    expect([...byName.keys()]).toEqual(['P_SET', 'F_NOTYPE', 'FB_A'])
+    expect(byName.get('P_SET')).toMatchObject({
+      type: 'function',
+      language: 'st',
+      documentation: 'sets a parameter',
+      variables: [
+        { name: 'N', class: 'input' },
+        { name: 'X', class: 'inOut' },
+        { name: 'OUT', class: 'output' },
+      ],
+    })
+    expect(byName.get('F_NOTYPE')?.documentation).toBe('')
+    expect(byName.get('FB_A')).toMatchObject({ type: 'function-block', variables: [{ name: 'Q', class: 'output' }] })
   })
 })

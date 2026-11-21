@@ -34,54 +34,137 @@ interface CachedArchive {
 }
 
 /**
- * Give the LSP an interface stub for every `cppBlocks` entry.
+ * Give the LSP an interface stub for everything a library grafts into the consumer at build time
+ * (graftLibraryContent) rather than shipping as strucpp-compiled chunks:
  *
- * C/C++ blocks are deliberately absent from `manifest.functionBlocks`
- * (strucpp never compiles them — they ride the archive verbatim and
- * are grafted into the consumer's C++-POU pipeline at compile time by
- * `injectLibraryCppBlocks`, under their PLAIN names).  Without a
- * manifest entry the ST language server flags `inst : RCNC_SYNC;` as
- * an unknown type even though the build succeeds.  Synthesize the
- * entries here, on the copy fed to the LSP worker only — the on-disk
- * archive is untouched, and an author-provided manifest entry with
- * the same name wins.
+ *   - `cppBlocks` and ST function blocks in `stPous`  -> `manifest.functionBlocks`;
+ *   - ST functions in `stPous`                        -> `manifest.functions`;
+ *   - ST programs in `stPous` (PLC_PRG calls `NC_LINK_IN();`) -> `manifest.functions` too, a call
+ *     with no arguments -- the LSP only needs the name to resolve the call;
+ *   - `dataTypes`                                     -> `manifest.types` (structs with fields);
+ *   - `globalVariables`                               -> `manifest.globals`.
+ *
+ * Without these the ST language server flags `inst : RCNC_SYNC;`, `P_SET(...)`, `P_VAL[i]` as
+ * unknown although the build succeeds. Synthesized on the copy fed to the LSP worker only -- the
+ * on-disk archive is untouched -- and an author-provided manifest entry of the same name wins.
  */
-function withCppBlockStubs(archive: {
+type Pin = { name: string; type: string }
+type FbEntry = { name: string; inputs: Pin[]; outputs: Pin[]; inouts: Pin[]; documentation: string }
+type FnEntry = {
+  name: string
+  returnType: string
+  parameters: Array<{ name: string; type: string; direction: 'input' | 'output' | 'inout' }>
+  documentation: string
+}
+type TypeEntry = { name: string; kind: 'struct' | 'enum' | 'alias'; fields?: Pin[] }
+type GlobalEntry = { name: string; type: string }
+type LibVar = { name?: string; class?: string; type?: { value?: string } }
+type LibPou = {
+  name?: string
+  pouType?: string
+  interface?: { variables?: LibVar[]; returnType?: string }
+  variables?: LibVar[]
+  documentation?: string
+}
+type LibType = { name?: string; derivation?: string; variable?: Array<{ name?: string; type?: { value?: string } }> }
+
+function pinsOf(vars: LibVar[] | undefined, cls: string): Pin[] {
+  return (vars ?? [])
+    .filter((v) => v.class === cls && v.name)
+    .map((v) => ({ name: v.name as string, type: v.type?.value ?? 'BOOL' }))
+}
+
+function withGraftStubs(archive: {
   manifest?: { name?: string; version?: string }
   [k: string]: unknown
 }): typeof archive {
-  type Pin = { name: string; type: string }
-  type FbEntry = { name: string; inputs: Pin[]; outputs: Pin[]; inouts: Pin[]; documentation: string }
-  type CppVar = { name?: string; class?: string; type?: { value?: string } }
-  type CppBlock = { name?: string; variables?: CppVar[]; documentation?: string }
+  const cppBlocks = ((archive as { cppBlocks?: LibPou[] }).cppBlocks ?? []).map((b): LibPou => ({
+    ...b,
+    pouType: 'function-block',
+    interface: { variables: b.variables },
+  }))
+  const stPous = (archive as { stPous?: LibPou[] }).stPous ?? []
+  const dataTypes = (archive as { dataTypes?: LibType[] }).dataTypes ?? []
+  const globals = (archive as { globalVariables?: LibVar[] }).globalVariables ?? []
+  if (cppBlocks.length + stPous.length + dataTypes.length + globals.length === 0) return archive
 
-  const cppBlocks = (archive as { cppBlocks?: CppBlock[] }).cppBlocks
-  if (!cppBlocks || cppBlocks.length === 0) return archive
-
-  const manifest = (archive.manifest ?? {}) as { functionBlocks?: FbEntry[] }
-  const existing = new Set((manifest.functionBlocks ?? []).map((fb) => fb.name.toUpperCase()))
-  const synthesized: FbEntry[] = []
-  for (const block of cppBlocks) {
-    if (!block.name || existing.has(block.name.toUpperCase())) continue
-    const pins = (cls: string): Pin[] =>
-      (block.variables ?? [])
-        .filter((v) => v.class === cls && v.name)
-        .map((v) => ({ name: v.name as string, type: v.type?.value ?? 'BOOL' }))
-    synthesized.push({
-      name: block.name,
-      inputs: pins('input'),
-      outputs: pins('output'),
-      inouts: pins('inOut'),
-      documentation: block.documentation ?? '',
-    })
+  const manifest = (archive.manifest ?? {}) as {
+    functionBlocks?: FbEntry[]
+    functions?: FnEntry[]
+    types?: TypeEntry[]
+    globals?: GlobalEntry[]
   }
-  if (synthesized.length === 0) return archive
+  const known = (list: Array<{ name: string }> | undefined) => new Set((list ?? []).map((e) => e.name.toUpperCase()))
+  const haveFbs = known(manifest.functionBlocks)
+  const haveFns = known(manifest.functions)
+  const haveTypes = known(manifest.types)
+  const haveGlobals = known(manifest.globals)
+  const fbs: FbEntry[] = []
+  const fns: FnEntry[] = []
+  for (const pou of [...cppBlocks, ...stPous]) {
+    if (!pou.name) continue
+    const vars = pou.interface?.variables
+    const upper = pou.name.toUpperCase()
+    if (pou.pouType === 'function-block') {
+      if (haveFbs.has(upper)) continue
+      haveFbs.add(upper)
+      fbs.push({
+        name: pou.name,
+        inputs: pinsOf(vars, 'input'),
+        outputs: pinsOf(vars, 'output'),
+        inouts: pinsOf(vars, 'inOut'),
+        documentation: pou.documentation ?? '',
+      })
+    } else if (pou.pouType === 'function' || pou.pouType === 'program') {
+      if (haveFns.has(upper)) continue
+      haveFns.add(upper)
+      const params =
+        pou.pouType === 'function'
+          ? [
+              ...pinsOf(vars, 'input').map((p) => ({ ...p, direction: 'input' as const })),
+              ...pinsOf(vars, 'inOut').map((p) => ({ ...p, direction: 'inout' as const })),
+              ...pinsOf(vars, 'output').map((p) => ({ ...p, direction: 'output' as const })),
+            ]
+          : []
+      fns.push({
+        name: pou.name,
+        returnType: pou.interface?.returnType ?? 'BOOL',
+        parameters: params,
+        documentation: pou.documentation ?? '',
+      })
+    }
+  }
+  const types: TypeEntry[] = []
+  for (const t of dataTypes) {
+    if (!t.name || haveTypes.has(t.name.toUpperCase())) continue
+    haveTypes.add(t.name.toUpperCase())
+    if (t.derivation === 'structure') {
+      types.push({
+        name: t.name,
+        kind: 'struct',
+        fields: (t.variable ?? [])
+          .filter((f) => f.name)
+          .map((f) => ({ name: f.name as string, type: f.type?.value ?? 'BOOL' })),
+      })
+    } else {
+      types.push({ name: t.name, kind: t.derivation === 'enumerated' ? 'enum' : 'alias' })
+    }
+  }
+  const gl: GlobalEntry[] = []
+  for (const g of globals) {
+    if (!g.name || !g.type?.value || haveGlobals.has(g.name.toUpperCase())) continue
+    haveGlobals.add(g.name.toUpperCase())
+    gl.push({ name: g.name, type: g.type.value })
+  }
   return {
     ...archive,
     manifest: {
       ...archive.manifest,
-      functionBlocks: [...(manifest.functionBlocks ?? []), ...synthesized],
-    },
+      functionBlocks: [...(manifest.functionBlocks ?? []), ...fbs],
+      functions: [...(manifest.functions ?? []), ...fns],
+      types: [...(manifest.types ?? []), ...types],
+      globals: [...(manifest.globals ?? []), ...gl],
+    } as typeof archive.manifest,
   }
 }
 
@@ -111,7 +194,7 @@ export function createEditorStlibSourceAdapter(): StlibSourcePort {
       // anyway.  This is defensive; loadAll() never produces these.
       if (!name || !version) continue
       map.set(name, {
-        json: JSON.stringify(withCppBlockStubs(archive)),
+        json: JSON.stringify(withGraftStubs(archive)),
         manifest: { name, version },
       })
     }

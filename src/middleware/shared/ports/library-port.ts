@@ -100,6 +100,16 @@ export interface StlibArchiveDTO {
     variables: unknown[]
     documentation?: string
   }>
+  /** Structured Text POUs (programs, function blocks, functions) the library ships as source,
+   *  in the editor's parsed POU shape (`PLCPou`: name, pouType, interface, body).  Grafted
+   *  into the consumer's project under their plain names, like `cppBlocks` -- a same-named
+   *  project POU wins.  Opaque here; see `graftLibraryContent`. */
+  stPous?: unknown[]
+  /** User data types (`PLCDataType`) the library's POUs and consumers use, grafted the same way. */
+  dataTypes?: unknown[]
+  /** Global variables (`PLCVariable`, the resource's globals) the library owns -- its interface
+   *  to the consumer (CODESYS: a library GVL), grafted under their plain names. */
+  globalVariables?: unknown[]
 }
 
 export interface LibraryPort {

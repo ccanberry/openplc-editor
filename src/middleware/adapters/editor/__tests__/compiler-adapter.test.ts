@@ -233,6 +233,9 @@ describe('createEditorCompilerAdapter', () => {
           null,
           null,
           false,
+          // `onlineChange` is the 12th slot -- `false` unless the editor replaces the
+          // running program without stopping it.
+          false,
         ],
         expect.any(Function),
       )
@@ -609,7 +612,7 @@ describe('createEditorCompilerAdapter', () => {
       // Project enables a library called `motor_lib` that ships a
       // C++ FB called `Driver`.  The bridge returns the archive with
       // its cppBlocks; the adapter must inject a synthesized
-      // `motor_lib__Driver` POU into the project's POU list before
+      // `Driver` POU (plain name) into the project's POU list before
       // it builds the IPC payload, so the program build's
       // c_blocks.h/code.cpp generation picks up the C++ source.
       const projectWithLib: PLCProjectData = {
@@ -646,7 +649,7 @@ describe('createEditorCompilerAdapter', () => {
       await promise
 
       // The IPC payload's POU list should contain the synthesized
-      // `motor_lib__Driver` POU AFTER preprocessing has turned its
+      // `Driver` POU (plain name) AFTER preprocessing has turned its
       // cpp body into an ST stub.  preprocessPous also stamps an
       // `originalCppPous` entry alongside.
       const ipcArgs = (window.bridge.runCompileProgram as jest.Mock).mock.calls[0][0] as unknown[]
@@ -655,8 +658,8 @@ describe('createEditorCompilerAdapter', () => {
         originalCppPous?: Array<{ name: string }>
       }
       const pouNames = ipcProjectData.pous.map((p) => p.data.name)
-      expect(pouNames).toContain('motor_lib__Driver')
-      expect(ipcProjectData.originalCppPous?.map((p) => p.name)).toContain('motor_lib__Driver')
+      expect(pouNames).toContain('Driver')
+      expect(ipcProjectData.originalCppPous?.map((p) => p.name)).toContain('Driver')
     })
 
     it("skips library cppBlocks that are not on the project's enabled list", async () => {
@@ -687,8 +690,8 @@ describe('createEditorCompilerAdapter', () => {
       const ipcArgs = (window.bridge.runCompileProgram as jest.Mock).mock.calls[0][0] as unknown[]
       const ipcProjectData = ipcArgs[4] as { pous: Array<{ data: { name: string } }> }
       const pouNames = ipcProjectData.pous.map((p) => p.data.name)
-      expect(pouNames).toContain('enabled_lib__OK')
-      expect(pouNames).not.toContain('other_lib__Leak')
+      expect(pouNames).toContain('OK')
+      expect(pouNames).not.toContain('Leak')
     })
   })
 

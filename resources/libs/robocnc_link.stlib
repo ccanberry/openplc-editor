@@ -1429,5 +1429,255 @@
    ],
    "documentation": "WRITE_PARAM_REAL - writes a REAL parameter to robocnc (FC16, lo-word first).\n   EN is the implicit IEC 61131-3 enable pin (STruC++ gates the body on it and\n   never assigns a declared EN member) -- do not re-test EN in the body."
   }
- ]
+ ],
+ "stPous": [
+  {
+   "name": "GETBIT",
+   "pouType": "function",
+   "interface": {
+    "returnType": "BOOL",
+    "variables": [
+     {
+      "name": "W",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "WORD"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "I",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "INT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "GETBIT := WORD_TO_BOOL(W AND REAL_TO_WORD(EXPT(2.0, INT_TO_REAL(I))));"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "SCALE_AI",
+   "pouType": "function",
+   "interface": {
+    "returnType": "REAL",
+    "variables": [
+     {
+      "name": "RAW",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "UINT"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "AIO22 LTC2335 code, softspan 4 = 0..10 V unipolar",
+      "debug": false
+     },
+     {
+      "name": "ENG_MIN",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "engineering value at V_MIN",
+      "debug": false
+     },
+     {
+      "name": "ENG_MAX",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "engineering value at V_MAX",
+      "debug": false
+     },
+     {
+      "name": "V_MIN",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "0.0",
+      "documentation": "volts corresponding to ENG_MIN",
+      "debug": false
+     },
+     {
+      "name": "V_MAX",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "10.0",
+      "documentation": "volts corresponding to ENG_MAX",
+      "debug": false
+     },
+     {
+      "name": "COUNTS_PER_V",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "6553.5",
+      "documentation": "65535 counts / 10 V",
+      "debug": false
+     },
+     {
+      "name": "volts",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* AN AIO22 ANALOG INPUT IN ENGINEERING UNITS: the raw code as volts, scaled linearly from\n   V_MIN..V_MAX to ENG_MIN..ENG_MAX (ENG_MIN when the two voltages are equal). *)\nvolts := UINT_TO_REAL(RAW) / COUNTS_PER_V;\nIF V_MAX <> V_MIN THEN\n\tSCALE_AI := ENG_MIN + (volts - V_MIN) * (ENG_MAX - ENG_MIN) / (V_MAX - V_MIN);\nELSE\n\tSCALE_AI := ENG_MIN;\nEND_IF;"
+   },
+   "documentation": ""
+  },
+  {
+   "name": "SCALE_AO",
+   "pouType": "function",
+   "interface": {
+    "returnType": "UINT",
+    "variables": [
+     {
+      "name": "ENG",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "engineering reference (e.g. mixer RPM, dosing ref)",
+      "debug": false
+     },
+     {
+      "name": "ENG_AT_0V",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "0.0",
+      "documentation": "engineering value that maps to 0 V",
+      "debug": false
+     },
+     {
+      "name": "ENG_AT_FS",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "100.0",
+      "documentation": "engineering value that maps to V_FS volts",
+      "debug": false
+     },
+     {
+      "name": "V_FS",
+      "class": "input",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "8.0",
+      "documentation": "full-scale output volts (keep < 9 on this bench)",
+      "debug": false
+     },
+     {
+      "name": "ZERO_CODE",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "32768.0",
+      "documentation": "",
+      "debug": false
+     },
+     {
+      "name": "COUNTS_PER_V",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "2621.4",
+      "documentation": "65535 counts / 25 V span",
+      "debug": false
+     },
+     {
+      "name": "V_CLAMP",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": "9.0",
+      "documentation": "XTR300 clip guard",
+      "debug": false
+     },
+     {
+      "name": "volts",
+      "class": "local",
+      "type": {
+       "definition": "base-type",
+       "value": "REAL"
+      },
+      "location": "",
+      "initialValue": null,
+      "documentation": "",
+      "debug": false
+     }
+    ]
+   },
+   "body": {
+    "language": "st",
+    "value": "(* AN ENGINEERING REFERENCE AS AN AIO22 ANALOG OUTPUT CODE (DAC80502, bipolar: 32768 = 0 V): the\n   reference as volts (ENG_AT_0V -> 0 V, ENG_AT_FS -> V_FS), clipped to +/- V_CLAMP. *)\nIF ENG_AT_FS <> ENG_AT_0V THEN\n\tvolts := (ENG - ENG_AT_0V) * V_FS / (ENG_AT_FS - ENG_AT_0V);\nELSE\n\tvolts := 0.0;\nEND_IF;\nIF volts > V_CLAMP THEN volts := V_CLAMP; END_IF;\nIF volts < (0.0 - V_CLAMP) THEN volts := 0.0 - V_CLAMP; END_IF;\nSCALE_AO := REAL_TO_UINT(ZERO_CODE + volts * COUNTS_PER_V);"
+   },
+   "documentation": ""
+  }
+ ],
+ "dataTypes": [],
+ "globalVariables": []
 }

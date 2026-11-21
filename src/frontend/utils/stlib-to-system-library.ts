@@ -196,6 +196,37 @@ export function stlibToSystemLibrary(archive: StlibArchiveDTO): SystemLibrary {
     })
   }
 
+  // Structured Text functions and function blocks carried as source in `archive.stPous`
+  // (grafted into the consumer's build under their plain names, like cppBlocks; see
+  // graftLibraryContent). Programs are not listed: a library program is called by name
+  // (`NC_LINK_IN();`), never placed as a block.
+  type StPouEntry = {
+    name?: string
+    pouType?: string
+    interface?: { variables?: CppBlockVar[]; returnType?: string }
+    documentation?: string
+  }
+  const archiveWithStPous = archive as typeof archive & { stPous?: StPouEntry[] }
+  for (const pou of archiveWithStPous.stPous ?? []) {
+    if (!pou.name || (pou.pouType !== 'function' && pou.pouType !== 'function-block')) continue
+    const variables: SystemLibraryVariable[] = []
+    for (const v of pou.interface?.variables ?? []) {
+      if (v.class !== 'input' && v.class !== 'output' && v.class !== 'inOut') continue
+      variables.push({ name: v.name, class: v.class, type: typeRef(v.type?.value ?? 'BOOL') })
+    }
+    if (pou.pouType === 'function') {
+      variables.push({ name: 'OUT', class: 'output', type: typeRef(pou.interface?.returnType ?? 'BOOL') })
+    }
+    pous.push({
+      name: pou.name,
+      type: pou.pouType,
+      language: 'st',
+      variables,
+      body: '',
+      documentation: pou.documentation ?? '',
+    })
+  }
+
   const result: SystemLibrary = {
     name: m.name,
     author: '',

@@ -12,6 +12,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.15.0',
+    date: '2026-11-21',
+    changes: [
+      'Libraries carry Structured Text too: a library now ships its programs, function blocks, functions, data types and global variables as well as its C/C++ blocks, and a project that enables it gets them in its build under their own names (a block, type or variable of the same name in the project wins). Variables keep their names, so the HMI and RoboStudio find them as before.',
+      'New library nc_link (RoboCNC NC Link, dispenser line): the whole connection of a dispenser program to robocnc -- state and positions in, axis commands and parameters out, program start, catalogue, parameter check, the HMI developer page and override, the reaction to an emergency stop and the reference. A machine project enables it and keeps only its own machine logic.',
+      'robocnc_link: SCALE_AI and SCALE_AO are functions now (they keep nothing between calls), shipped with GETBIT as library functions.',
+      'Functions as in CODESYS: a FUNCTION may use global variables (declared VAR_EXTERNAL or not), and a global variable given to a function\'s VAR_IN_OUT is passed by reference, so the function changes the global itself. Both failed to compile before; programs that did not use them compile exactly as before.',
+      'The editor knows a library\'s ST functions, function blocks, data types and globals while you type (no false "unknown" marks), and the library tree lists its functions and function blocks.',
+    ],
+  },
+  {
     version: '1.14.0',
     date: '2026-11-20',
     changes: [
