@@ -27,6 +27,7 @@ import TableActions from '../../_atoms/table-actions'
 import { toast } from '../../_features/[app]/toast/use-toast'
 import { GlobalVariablesTable } from '../../_molecules/global-variables-table'
 import { VariablesCodeEditor } from '../variables-code-editor'
+import { LiveInitialDialog } from './live-initial-dialog'
 
 /**
  * One GVL (CODESYS: a global variable list object): its variables in the table, or its code --
@@ -90,6 +91,9 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
   // order"; moving a row up or down means the stored order, so it waits for an unsorted view
   const [sorting, setSorting] = useState<SortingState>([])
   const sorted = sorting.length > 0
+  // LIVE VALUES -> INITIAL VALUES (logged in only): the dialog reads the PLC and lists the changes
+  const isDebuggerVisible = useOpenPLCStore((s) => s.workspace.isDebuggerVisible)
+  const [liveOpen, setLiveOpen] = useState(false)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const latestCodeRef = useRef(editorCode)
@@ -321,6 +325,27 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
     updateModelVariables({ display: 'table', selectedRow: ROWS_NOT_SELECTED })
   }
 
+  /** The ticked live values become the initial values (every GVL); the PLC is not touched. */
+  const applyLiveInitials = (values: Map<string, string>) => {
+    setLiveOpen(false)
+    if (values.size === 0) return
+    pushToHistory(editor.meta.name)
+    const variables = globalVariables
+      .filter((v) => v.name)
+      .map((v) => (values.has(v.name) ? { ...v, initialValue: values.get(v.name) } : v))
+    const response = setGlobalVariables({ variables })
+    if (!response.ok) {
+      toast({ title: response.title, description: response.message, variant: 'fail' })
+      return
+    }
+    handleFileAndWorkspaceSavedState('Resource')
+    toast({
+      title: 'Initial values taken from the PLC',
+      description: `${values.size} ${values.size === 1 ? 'variable' : 'variables'}; save the project to keep them`,
+      variant: 'default',
+    })
+  }
+
   /** The code view in the order picked: what is typed is taken first, then put in that order. */
   const sortCode = (choice: string) => {
     const [key, dir] = choice.split(':')
@@ -391,7 +416,20 @@ const GlobalVariablesEditor = ({ gvl }: { gvl: string }) => {
     >
       <div aria-label='Variables editor actions' className='relative flex h-8 w-full min-w-[1035px]'>
         <div aria-label='Variables editor table actions container' className='flex h-full w-full justify-between'>
-          <span className='select-none'>{gvl}</span>
+          <span className='flex select-none items-center gap-3'>
+            {gvl}
+            {isDebuggerVisible && (
+              <button
+                type='button'
+                className='rounded-md border border-neutral-400 px-2 py-0.5 text-xs hover:border-brand'
+                onClick={() => setLiveOpen(true)}
+                title="Take the PLC's live values as the project's initial values (the retained ones are ticked)"
+              >
+                Live values → initial values
+              </button>
+            )}
+          </span>
+          {liveOpen && <LiveInitialDialog onApply={applyLiveInitials} onClose={() => setLiveOpen(false)} />}
 
           {editorVariables.display === 'table' && sorted && (
             <div className='flex items-center gap-2 text-xs'>
