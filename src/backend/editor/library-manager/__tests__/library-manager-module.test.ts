@@ -58,7 +58,7 @@ jest.mock(
   { virtual: true },
 )
 
-import { LibraryManagerModule } from '../library-manager-module'
+import { compareVersions, LibraryManagerModule } from '../library-manager-module'
 
 function makeArchive(name: string, version = '1.0.0') {
   return {
@@ -190,16 +190,54 @@ describe('LibraryManagerModule', () => {
       })
     })
 
-    it('refuses to install a library that shadows a bundled one', async () => {
+    it('refuses to install a version of a bundled library that is not newer', async () => {
       writeBundled(makeArchive('iec-standard-fb', '2.0.0'))
       const mod = makeModule()
-      const tmp = join(testRoot, 'rogue.stlib')
-      writeFileSync(tmp, JSON.stringify(makeArchive('iec-standard-fb', '99.0.0')), 'utf-8')
-      const result = await mod.installFromFile(tmp)
-      expect(result).toEqual({
-        success: false,
-        error: expect.stringContaining('bundled library with this name'),
-      })
+      for (const v of ['2.0.0', '1.9.9']) {
+        const tmp = join(testRoot, `rogue-${v}.stlib`)
+        writeFileSync(tmp, JSON.stringify(makeArchive('iec-standard-fb', v)), 'utf-8')
+        const result = await mod.installFromFile(tmp)
+        expect(result).toEqual({
+          success: false,
+          error: expect.stringContaining('only a newer version replaces it'),
+        })
+      }
+    })
+
+    it('a newer version of a bundled library replaces it everywhere, and uninstalling it brings the shipped one back', async () => {
+      writeBundled(makeArchive('nc_link', '1.0.0'))
+      const mod = makeModule()
+      const tmp = join(testRoot, 'nc_link.stlib')
+      writeFileSync(tmp, JSON.stringify(makeArchive('nc_link', '1.0.10')), 'utf-8')
+      expect(await mod.installFromFile(tmp)).toMatchObject({ success: true, name: 'nc_link', version: '1.0.10' })
+
+      const rows = mod.listInstalled().filter((l) => l.name === 'nc_link')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ version: '1.0.10', bundled: false, origin: 'stlib' })
+      expect(mod.loadAll().filter((a) => a.manifest.name === 'nc_link').map((a) => a.manifest.version)).toEqual(['1.0.10'])
+      const { archives, missing } = mod.loadEnabledArchives(['nc_link'])
+      expect(missing).toEqual([])
+      expect(archives.filter((a) => a.manifest.name === 'nc_link').map((a) => a.manifest.version)).toEqual(['1.0.10'])
+
+      expect(mod.uninstall('nc_link')).toEqual({ success: true })
+      expect(mod.listInstalled().filter((l) => l.name === 'nc_link')).toEqual([
+        expect.objectContaining({ version: '1.0.0', bundled: true }),
+      ])
+      expect(mod.uninstall('nc_link')).toEqual({ success: false, error: expect.stringContaining('Cannot uninstall bundled') })
+    })
+
+    it('a later Suite shipping the same or a newer version takes over from an imported one', async () => {
+      writeBundled(makeArchive('nc_link', '1.0.0'))
+      const tmp = join(testRoot, 'nc_link.stlib')
+      writeFileSync(tmp, JSON.stringify(makeArchive('nc_link', '1.0.1')), 'utf-8')
+      expect(await makeModule().installFromFile(tmp)).toMatchObject({ success: true })
+      writeBundled(makeArchive('nc_link', '1.0.1')) // the next Suite ships it
+      const mod = makeModule()
+      expect(mod.listInstalled().filter((l) => l.name === 'nc_link')).toEqual([
+        expect.objectContaining({ version: '1.0.1', bundled: true }),
+      ])
+      expect(mod.loadEnabledArchives(['nc_link']).archives.filter((a) => a.manifest.name === 'nc_link')).toHaveLength(1)
+      expect(mod.loadAll().filter((a) => a.manifest.name === 'nc_link')).toHaveLength(1)
     })
 
     it('rejects manifest names that contain path separators', async () => {
@@ -447,10 +485,10 @@ describe('LibraryManagerModule', () => {
       expect(transport.fetchText).not.toHaveBeenCalled()
     })
 
-    it('surfaces a conflict when a download matches a bundled library name', async () => {
+    it('surfaces a conflict when a download matches a bundled library name and is not newer', async () => {
       writeBundled(makeArchive('iec-standard-fb'))
       const transport = makeStubTransport({
-        'pub-x': makeArchive('iec-standard-fb', '9.9.9'),
+        'pub-x': makeArchive('iec-standard-fb', '1.0.0'),
       })
       const mod = new LibraryManagerModule({ librariesDir, bundledDir, catalogTransport: transport })
 
@@ -464,5 +502,14 @@ describe('LibraryManagerModule', () => {
         error: expect.stringContaining('bundled library'),
       })
     })
+  })
+})
+
+describe('compareVersions', () => {
+  it('compares dotted versions part by part, numerically', () => {
+    expect(compareVersions('1.0.10', '1.0.9')).toBeGreaterThan(0)
+    expect(compareVersions('1.0', '1.0.0')).toBe(0)
+    expect(compareVersions('1.2.0-rc1', '1.2.0')).toBe(0)
+    expect(compareVersions('0.9', '1')).toBeLessThan(0)
   })
 })

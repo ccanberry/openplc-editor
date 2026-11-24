@@ -141,13 +141,18 @@ export class LibraryManagerModule {
   listInstalled(): InstalledLibrary[] {
     const out: InstalledLibrary[] = []
 
+    const registry = this.readRegistry()
     for (const archive of this.readBundledArchives()) {
-      out.push(bundledArchiveToInstalledRow(archive))
+      // an imported newer version of a shipped library is the one in use: its row instead
+      const name = archive.manifest.name
+      const override = this.newerImportOf(name)
+      const info = registry.libraries[name]
+      out.push(override && info ? userArchiveToInstalledRow(override, { name, ...info }) : bundledArchiveToInstalledRow(archive))
     }
 
-    const registry = this.readRegistry()
     const userEntries = Object.entries(registry.libraries).sort(([a], [b]) => a.localeCompare(b))
     for (const [name, info] of userEntries) {
+      if (this.isBundled(name)) continue // listed above, in the shipped library's place
       const archive = this.readUserArchive(name, info.stlibPath)
       if (!archive) continue
       out.push(
@@ -177,8 +182,7 @@ export class LibraryManagerModule {
    * instead of strucpp's per-symbol "function not found" cascade.
    */
   loadEnabledArchives(enabledNames: string[]): { archives: StlibArchiveDTO[]; missing: string[] } {
-    const archives: StlibArchiveDTO[] = []
-    for (const archive of this.readBundledArchives()) archives.push(archive)
+    const archives: StlibArchiveDTO[] = [...this.effectiveBundledArchives()]
     const registry = this.readRegistry()
     const missing: string[] = []
     for (const name of enabledNames) {
@@ -209,11 +213,11 @@ export class LibraryManagerModule {
    * change events.
    */
   loadAll(): StlibArchiveDTO[] {
-    const out: StlibArchiveDTO[] = []
-    for (const archive of this.readBundledArchives()) out.push(archive)
+    const out: StlibArchiveDTO[] = [...this.effectiveBundledArchives()]
     const registry = this.readRegistry()
     const userEntries = Object.entries(registry.libraries).sort(([a], [b]) => a.localeCompare(b))
     for (const [name, info] of userEntries) {
+      if (this.isBundled(name)) continue // in effectiveBundledArchives, when it is the newer one
       const archive = this.readUserArchive(name, info.stlibPath)
       if (archive) out.push(archive)
     }
@@ -274,12 +278,13 @@ export class LibraryManagerModule {
   uninstall(name: string): { success: boolean; error?: string } {
     try {
       validatePathId(name, 'name')
-      if (this.isBundled(name)) {
-        return { success: false, error: `Cannot uninstall bundled library '${name}'` }
-      }
-
       const registry = this.readRegistry()
       const entry = registry.libraries[name]
+      // a shipped library cannot be removed; an imported version of it can, and the shipped
+      // version is then the one in use again
+      if (this.isBundled(name) && !entry) {
+        return { success: false, error: `Cannot uninstall bundled library '${name}'` }
+      }
       if (!entry) {
         return { success: false, error: `Library '${name}' is not installed` }
       }
@@ -339,10 +344,16 @@ export class LibraryManagerModule {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
 
-    if (this.isBundled(prepared.name)) {
+    // A library the Suite ships is replaced only by a NEWER version of it (a library its developer
+    // updates between Suite releases, such as nc_link): the newer copy is then used everywhere, and a
+    // later Suite shipping the same or a newer version takes over again by itself.
+    const shipped = this.bundledArchive(prepared.name)
+    if (shipped && compareVersions(prepared.version, shipped.manifest.version) <= 0) {
       return {
         success: false,
-        error: `Cannot install '${prepared.name}' — a bundled library with this name already exists`,
+        error:
+          `Cannot install '${prepared.name}' ${prepared.version} — a bundled library with this name already exists ` +
+          `(version ${shipped.manifest.version}); only a newer version replaces it`,
       }
     }
 
@@ -409,6 +420,23 @@ export class LibraryManagerModule {
     return archives
   }
 
+  private bundledArchive(name: string): StlibArchiveDTO | undefined {
+    return this.readBundledArchives().find((a) => a.manifest.name === name)
+  }
+
+  /** The imported archive of a shipped library when it is NEWER than the shipped one, else null. */
+  private newerImportOf(name: string): StlibArchiveDTO | null {
+    const shipped = this.bundledArchive(name)
+    const entry = this.readRegistry().libraries[name]
+    if (!shipped || !entry || compareVersions(entry.version, shipped.manifest.version) <= 0) return null
+    return this.readUserArchive(name, entry.stlibPath)
+  }
+
+  /** The shipped libraries, each replaced by its imported newer version where there is one. */
+  private effectiveBundledArchives(): StlibArchiveDTO[] {
+    return this.readBundledArchives().map((a) => this.newerImportOf(a.manifest.name) ?? a)
+  }
+
   private isBundled(name: string): boolean {
     if (!this.bundledNamesCache) this.readBundledArchives()
     return this.bundledNamesCache!.has(name)
@@ -457,4 +485,19 @@ export class LibraryManagerModule {
   private writeRegistry(registry: LibraryRegistry): void {
     writeFileSync(this.registryPath, JSON.stringify(registry, null, 2) + '\n', 'utf-8')
   }
+}
+
+/**
+ * Compare two dotted versions numerically ("1.0.10" > "1.0.9"); a missing part counts as 0 and a
+ * part's non-digits are ignored ("1.2.0-rc1" compares as 1.2.0). Negative, 0 or positive.
+ */
+export function compareVersions(a: string, b: string): number {
+  const pa = String(a).split('.')
+  const pb = String(b).split('.')
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = parseInt((pa[i] ?? '0').replace(/[^0-9].*$/, ''), 10) || 0
+    const y = parseInt((pb[i] ?? '0').replace(/[^0-9].*$/, ''), 10) || 0
+    if (x !== y) return x - y
+  }
+  return 0
 }

@@ -12,6 +12,21 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '1.16.1',
+    date: '2026-11-24',
+    changes: [
+      'Libraries: a newer version of a library the Suite ships can be installed from a file (Libraries -> Install from file) and then replaces the shipped one in every build and in the library list, so a library such as nc_link is updated by sending its .stlib alone. An equal or older version is still refused; uninstalling it brings the shipped version back, and a later Suite that ships the same or a newer version takes over by itself.',
+      'nc_link 1.0.1: the total flow rate set on the panel or in RoboStudio is the one a program dispenses with. robocnc\'s P1702 follows the setting while no program runs (it was sent only when the PLC started), and is taken back as the flow rate only while a program that set P1703 = 1 runs, so an old value no longer replaces a new setting.',
+    ],
+  },
+  {
+    version: '1.16.0',
+    date: '2026-11-24',
+    changes: [
+      'GVL editor: Live values -> initial values. While logged in, it lists the globals whose live value differs from the project\'s initial value (the retained ones ticked); Apply writes the ticked live values into the initial values, the PLC untouched. Scalars and one-dimensional arrays of elementary types.',
+    ],
+  },
+  {
     version: '1.15.0',
     date: '2026-11-21',
     changes: [
