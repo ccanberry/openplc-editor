@@ -1,7 +1,7 @@
 {
   "name": "open-plc-editor",
   "version": "4.2.2",
-  "description": "OpenPLC Editor - IDE capable of creating programs for the OpenPLC Runtime",
+  "description": "RoboPLC Editor - IDE for programs of the RoboPLC Runtime",
   "license": "MIT",
   "author": {
     "name": "Autonomy Logic"

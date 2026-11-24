@@ -3,14 +3,11 @@ import { useEffect, useState } from 'react'
 import { useAccelerator, useCapabilities, useSystem } from '../../../../middleware/shared/providers'
 import { APP_VERSION } from '../../../data/constants/app-version'
 import { useOpenPLCStore } from '../../../store'
-import { BASED_ON } from '../../../utils/brand'
+import { BASED_ON, LICENSE_NOTICE, LICENSE_URL } from '../../../utils/brand'
 import { Modal, ModalContent } from '../../_molecules/modal'
 
-// Per-app product name, injected at build time (Vite `define` in web =
-// 'OpenPLC Web'; webpack DefinePlugin in the editor = 'OpenPLC Editor'). This
-// file is byte-identical across both repos — the displayed name differs only
-// because the injected value differs. Declared defensively so an un-injected
-// build (tests) falls back to 'OpenPLC' instead of throwing.
+// Per-app product name, injected at build time (webpack DefinePlugin in the editor). Declared
+// defensively so an un-injected build (tests) falls back to 'RoboPLC Editor' instead of throwing.
 declare const APP_NAME: string | undefined
 declare const BUILD_DATE: string | undefined
 
@@ -38,10 +35,8 @@ const AboutModal = () => {
   const description = 'IDE for the RoboPLC Runtime, compliant with the IEC 61131-3 international standard.'
   const copyrightYear = new Date().getFullYear()
   const copyright = `RoboPLC \u00A9 ${copyrightYear} Robotek`
-  const linkUrl = 'https://autonomylogic.com'
-
-  const handleOpenAboutLink = () => {
-    void system.openExternalLink(linkUrl)
+  const handleOpenLicense = () => {
+    void system.openExternalLink(LICENSE_URL)
   }
 
   const [isAboutOpen, setIsAboutOpen] = useState(false)
@@ -77,20 +72,19 @@ const AboutModal = () => {
             <p className='mt-4'>{description}</p>
           </div>
           <p className='mt-4'>{copyright}</p>
-          <p className='mt-2 text-[11px] text-neutral-500 dark:text-neutral-400'>{BASED_ON}</p>
-          <p className='mt-4'>
-            <button onClick={() => void handleOpenAboutLink()} className='text-[#0464fb] underline'>
-              {linkUrl}
-            </button>
-          </p>
+          <div data-keep-brand='' className='mt-3 text-[11px] text-neutral-500 dark:text-neutral-400'>
+            <p>{BASED_ON}</p>
+            <p className='mt-1'>{LICENSE_NOTICE}</p>
+          </div>
         </div>
 
         <div className='my-4 flex justify-center gap-3 text-sm font-medium dark:text-neutral-100'>
-          {['Credits', 'License', 'Sponsors', 'Close'].map((label, index) => (
-            <button key={index} className='h-8 w-20 rounded-md bg-neutral-100 dark:bg-neutral-850' onClick={closeModal}>
-              {label}
-            </button>
-          ))}
+          <button className='h-8 w-20 rounded-md bg-neutral-100 dark:bg-neutral-850' onClick={handleOpenLicense}>
+            License
+          </button>
+          <button className='h-8 w-20 rounded-md bg-neutral-100 dark:bg-neutral-850' onClick={closeModal}>
+            Close
+          </button>
         </div>
       </ModalContent>
     </Modal>

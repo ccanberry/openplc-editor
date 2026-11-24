@@ -25,6 +25,7 @@ import { setPythonLspWorkerUrl } from './frontend/components/_features/[workspac
 import { AppLayout } from './frontend/components/_templates/app-layout'
 import { StartScreen } from './frontend/screens/start-screen'
 import { WorkspaceScreen } from './frontend/screens/workspace-screen'
+import { startBrandSweep } from './frontend/services/brand-sweep'
 import { bootStLsp } from './frontend/services/st-lsp/boot'
 import { openPLCStoreBase, useOpenPLCStore } from './frontend/store'
 import { stlibsToSystemLibraries } from './frontend/utils/stlib-to-system-library'
@@ -93,6 +94,11 @@ export default function App() {
   useEffect(() => {
     setRuntimeIpAddress(runtimeIpAddress)
   }, [runtimeIpAddress])
+
+  // RoboPLC on screen wherever a text says OpenPLC (services/brand-sweep.ts)
+  useEffect(() => {
+    startBrandSweep()
+  }, [])
 
   // Sync project path to the platform adapter so the ESI port can access it
   const projectPath = useOpenPLCStore((state) => state.project.meta.path)

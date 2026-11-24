@@ -1225,6 +1225,29 @@ export const DefaultWorkspaceActivityBar = ({ zoom }: DefaultWorkspaceActivityBa
     }
   }, [runtime])
 
+  // CONNECT WHEN A PROJECT OPENS (user, 2026-11-24): a project whose target is a RoboPLC board asks
+  // at once -- the same dialog as Login while not connected: the board's address and password, then
+  // the runtime's login. Cancel works offline (build, edit, everything that needs no board); Connect
+  // in the board settings or Login connects later. Once per opened project, never while connected.
+  const autoConnectPathRef = useRef('')
+  const boardIsRuntime = currentBoardInfo?.compiler === 'openplc-compiler'
+  useEffect(() => {
+    const path = projectMeta.path
+    if (!path || autoConnectPathRef.current === path) return
+    if (!projectCaps.hasDevices || !boardIsRuntime || isSimulatorBoard) return
+    autoConnectPathRef.current = path
+    if (useOpenPLCStore.getState().runtimeConnection.connectionStatus === 'connected') return
+    void ensureRuntimeConnection().then((ok) => {
+      if (!ok) {
+        useOpenPLCStore.getState().consoleActions.addLog({
+          id: crypto.randomUUID(),
+          level: 'info',
+          message: 'Working offline: Connect in the board settings, or Login, connects to the board later.',
+        })
+      }
+    })
+  }, [projectMeta.path, projectCaps.hasDevices, boardIsRuntime, isSimulatorBoard, ensureRuntimeConnection])
+
   // `auto`: the login again after the PLC came back (reloginPendingRef). It asks nothing -- no
   // save, no password, no download -- and says why when it cannot log in.
   const handleDebuggerClick = useCallback(async (opts?: { auto?: boolean }) => {

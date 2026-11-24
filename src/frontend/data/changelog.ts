@@ -16,6 +16,9 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-11-24',
     changes: [
       'Libraries: a newer version of a library the Suite ships can be installed from a file (Libraries -> Install from file) and then replaces the shipped one in every build and in the library list, so a library such as nc_link is updated by sending its .stlib alone. An equal or older version is still refused; uninstalling it brings the shipped version back, and a later Suite that ships the same or a newer version takes over by itself.',
+      'RoboPLC throughout: the window says RoboPLC wherever a text said OpenPLC (board names, messages, the console). Only the About panel names OpenPLC: RoboPLC is derived from OpenPLC v4 and STruC++, under the GNU GPL version 3 -- the License button opens it, and the installer puts LICENSE.txt and NOTICE.txt in the program folder.',
+      'Opening a project whose target is a RoboPLC board asks at once for the board\'s password and logs in to it; Cancel works offline, and Connect in the board settings or Login connects later.',
+      'nc_link 1.0.1: the panel\'s feed override follows robocnc both ways in simulation (one set in RoboStudio shows on the panel too); the dosing pumps\' unit is the machine\'s PumpUnitDeg (1 = degrees as on Marex, 360 = full turns) and a pump\'s "go to target" is a relative move -- a Marex calibration no longer runs on and on.',
       'nc_link 1.0.1: the total flow rate set on the panel or in RoboStudio is the one a program dispenses with. robocnc\'s P1702 follows the setting while no program runs (it was sent only when the PLC started), and is taken back as the flow rate only while a program that set P1703 = 1 runs, so an old value no longer replaces a new setting.',
     ],
   },

@@ -41,7 +41,7 @@ export const VersionInfoModal = ({ open, onClose }: VersionInfoModalProps) => {
           <div>
             <h2 className='text-lg font-semibold text-neutral-900 dark:text-neutral-100'>{ROBOTEK_TITLE}</h2>
             <p className='text-xs text-neutral-500 dark:text-neutral-400'>RoboPLC Suite — version history</p>
-            <p className='text-[10px] text-neutral-500 dark:text-neutral-400'>{BASED_ON}</p>
+            <p data-keep-brand='' className='text-[10px] text-neutral-500 dark:text-neutral-400'>{BASED_ON}</p>
           </div>
           <button
             aria-label='Close'
